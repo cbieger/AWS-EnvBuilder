@@ -124,7 +124,7 @@ for directory in sorted(directory_patterns):
 
 # Empty log directories are represented by harmless tracked marker files. No
 # transcript is ever eligible for packaging.
-for retention_class in ("active", "errors", "success"):
+for retention_class in ("active", "errors", "success", "inventory"):
     marker = source_root / "logs" / retention_class / ".gitkeep"
     if marker.is_symlink():
         raise SystemExit(f"Refusing package symlink: {marker.relative_to(source_root)}")

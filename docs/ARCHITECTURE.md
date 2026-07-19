@@ -116,7 +116,8 @@ Container stdout/stderr goes to a 14-day CloudWatch group. Normal bootstrap
 output also stays 14 days. A separate bootstrap error file is collected into a
 90-day group. ALB request logs stay 30 days in a private encrypted S3 bucket.
 The operator's local scripts retain successful transcripts for 14 days/20 files
-and failures for 90 days/100 files.
+and failures for 90 days/100 files. Self-destruct account inventories and
+redacted deletion manifests use a separate 365-day/20-file local retention class.
 
 Application teams must write useful errors to stderr without credentials,
 tokens, authorization headers, cookies, or personal data. Infrastructure cannot
@@ -134,6 +135,17 @@ separate Billing preference and should stay enabled.
 Budgets are alarms, not circuit breakers. Billing data is delayed, forecasts may
 need weeks of history, and resources continue running after an alert. An operator
 must investigate and run the guarded destroy workflow when appropriate.
+
+### Ownership-safe retirement
+
+The ordinary Terraform destroy path removes runtime resources and keeps the
+separate state bucket and first-run service identity for recovery. A distinct
+self-destruct path first inventories the selected account/Region, proves the
+backend name and ownership, rejects any create/update action in the saved plan,
+and requires an account/project/environment-specific phrase. Optional state and
+IAM cleanup happen only after Terraform state contains no managed runtime
+objects; harmless read-only data records may remain. Broad inventory is never
+used as authorization to delete unrelated assets.
 
 ## What "stateless" requires from the application
 

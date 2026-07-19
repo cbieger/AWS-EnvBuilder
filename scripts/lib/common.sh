@@ -98,6 +98,74 @@ require_aws_root_identity() {
   fi
 }
 
+# Remove one named profile from the standard AWS credentials and config files
+# without reformatting or replacing any unrelated profile. This is used only by
+# failed first-run rollback or an explicitly approved service-account teardown.
+remove_aws_cli_profile_sections() {
+  local profile_name="$1"
+  local credentials_path="${AWS_SHARED_CREDENTIALS_FILE:-${HOME}/.aws/credentials}"
+  local config_path="${AWS_CONFIG_FILE:-${HOME}/.aws/config}"
+
+  [[ "${profile_name}" =~ ^[A-Za-z0-9_.@+-]{1,128}$ ]] \
+    || die "Refusing to remove an invalid AWS CLI profile name."
+
+  python3 - "${profile_name}" "${credentials_path}" "${config_path}" <<'PY'
+import os
+import re
+import sys
+import tempfile
+
+profile_name, credentials_path, config_path = sys.argv[1:]
+
+
+def remove_section(path, section_name):
+    """Remove one exact INI section without reformatting unrelated content."""
+    path = os.path.abspath(os.path.expanduser(path))
+    if not os.path.exists(path):
+        return
+
+    with open(path, "r", encoding="utf-8") as source:
+        lines = source.readlines()
+
+    header = f"[{section_name}]"
+    kept = []
+    removing = False
+    found = False
+    for line in lines:
+        stripped = line.strip()
+        if re.fullmatch(r"\[[^]]+\]", stripped):
+            removing = stripped == header
+            found = found or removing
+        if not removing:
+            kept.append(line)
+
+    if not found:
+        return
+
+    directory = os.path.dirname(path)
+    descriptor, temporary_path = tempfile.mkstemp(
+        prefix=".aws-envbuilder-profile-removal-", dir=directory
+    )
+    try:
+        with os.fdopen(descriptor, "w", encoding="utf-8") as output:
+            output.writelines(kept)
+            output.flush()
+            os.fsync(output.fileno())
+        os.chmod(temporary_path, 0o600)
+        os.replace(temporary_path, path)
+    except BaseException:
+        try:
+            os.unlink(temporary_path)
+        except FileNotFoundError:
+            pass
+        raise
+
+
+remove_section(credentials_path, profile_name)
+remove_section(config_path, f"profile {profile_name}")
+PY
+}
+
 # Routine success logs have short retention; failure logs have much longer
 # retention and a larger count limit. Only helper-generated *.log files inside
 # these exact directories are eligible for removal.
@@ -105,19 +173,21 @@ rotate_one_log_set() {
   local directory="$1"
   local age_days="$2"
   local maximum_files="$3"
+  local file_pattern="${4:-*.log}"
   local file_count
   local oldest_file
 
   mkdir -p "${directory}"
-  find "${directory}" -type f -name '*.log' -mtime "+${age_days}" -delete
+  find "${directory}" -type f -name "${file_pattern}" -mtime "+${age_days}" -delete
 
   while true; do
-    file_count=$(find "${directory}" -type f -name '*.log' | wc -l | tr -d ' ')
+    file_count=$(find "${directory}" -type f -name "${file_pattern}" | wc -l | tr -d ' ')
     if [[ "${file_count}" -le "${maximum_files}" ]]; then
       break
     fi
 
-    oldest_file=$(ls -1tr "${directory}"/*.log 2>/dev/null | head -n 1 || true)
+    oldest_file=$(find "${directory}" -type f -name "${file_pattern}" -print0 \
+      | xargs -0 ls -1tr 2>/dev/null | head -n 1 || true)
     [[ -n "${oldest_file}" ]] || break
     rm -f -- "${oldest_file}"
   done
@@ -127,10 +197,12 @@ rotate_workspace_logs() {
   mkdir -p \
     "${WORKSPACE_LOG_ROOT}/active" \
     "${WORKSPACE_LOG_ROOT}/success" \
-    "${WORKSPACE_LOG_ROOT}/errors"
+    "${WORKSPACE_LOG_ROOT}/errors" \
+    "${WORKSPACE_LOG_ROOT}/inventory"
 
   rotate_one_log_set "${WORKSPACE_LOG_ROOT}/success" 14 20
   rotate_one_log_set "${WORKSPACE_LOG_ROOT}/errors" 90 100
+  rotate_one_log_set "${WORKSPACE_LOG_ROOT}/inventory" 365 20 '*.json'
 
   # An interrupted process may leave an active transcript. Preserve it as an
   # error after one day rather than deleting potentially valuable evidence.

@@ -280,12 +280,17 @@ class PackageTests(unittest.TestCase):
         self.assertIn(f"{prefix}README.md", members)
         self.assertIn(f"{prefix}scripts/first_run_setup.sh", members)
         self.assertIn(f"{prefix}scripts/package.sh", members)
+        self.assertIn(f"{prefix}scripts/account_inventory.py", members)
+        self.assertIn(f"{prefix}scripts/self_destruct.sh", members)
+        self.assertIn(f"{prefix}docs/SELF_DESTRUCT.md", members)
+        self.assertIn(f"{prefix}logs/inventory/.gitkeep", members)
         self.assertIn(f"{prefix}terraform/variables.tf", members)
         self.assertFalse(any(".workspace" in name for name in members))
         self.assertFalse(any(".terraform/" in name for name in members))
         self.assertFalse(any(name.endswith("terraform.tfvars") for name in members))
         self.assertFalse(any(name.endswith(".tfplan") for name in members))
         self.assertFalse(any(name.endswith(".log") for name in members))
+        self.assertFalse(any(name.endswith(".json") for name in members))
         self.assertFalse(any("AGENTS.md" in name for name in members))
 
 

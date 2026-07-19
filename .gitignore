@@ -25,6 +25,7 @@ dist/
 # Runtime logs are local evidence, not source code. Keep only the directory markers.
 logs/**/*.log
 logs/active/*
+logs/inventory/*
 !logs/**/.gitkeep
 
 # Common editor, operating-system, Python, and test artifacts.

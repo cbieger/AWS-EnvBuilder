@@ -169,6 +169,9 @@ readonly REQUIRED_ACTIONS=(
   "iam:ListInstanceProfileTags"
   "iam:ListRolePolicies"
   "iam:ListRoleTags"
+  "iam:ListRoles"
+  "iam:ListUsers"
+  "iam:ListInstanceProfiles"
   "iam:PassRole"
   "iam:PutRolePolicy"
   "iam:RemoveRoleFromInstanceProfile"
@@ -202,6 +205,7 @@ readonly REQUIRED_ACTIONS=(
   "s3:PutBucketVersioning"
   "s3:PutEncryptionConfiguration"
   "s3:PutObject"
+  "tag:GetResources"
 )
 
 if [[ "${PRINT_SERVICE_POLICY}" == "true" ]]; then
@@ -271,6 +275,10 @@ read_check "CloudWatch Logs" logs describe-log-groups --limit 1
 read_check "ECR" ecr describe-repositories --max-results 1
 read_check "S3" s3api list-buckets
 read_check "AWS Budgets" budgets describe-budgets --account-id "${account_id}" --max-results 1
+read_check "IAM users" iam list-users --max-items 1
+read_check "IAM roles" iam list-roles --max-items 1
+read_check "IAM instance profiles" iam list-instance-profiles --max-items 1
+read_check "Resource Groups Tagging API" resourcegroupstaggingapi get-resources --resources-per-page 1
 
 if [[ "${read_failures}" -gt 0 ]]; then
   die "${read_failures} required read check(s) failed. Ask an AWS administrator to review docs/PERMISSIONS.md."

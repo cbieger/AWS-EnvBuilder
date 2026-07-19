@@ -11,7 +11,7 @@ After first run it automatically selects the saved service profile; an explicit
    the exceptional `--run-as-root` flag.
 3. EC2 Availability Zone lookup proves the Region is enabled.
 4. Small list/describe calls test EC2, Auto Scaling, ELBv2, CloudWatch Logs, ECR,
-   S3, and AWS Budgets read access.
+   S3, AWS Budgets, IAM inventory, and the Resource Groups Tagging API.
 5. IAM `SimulatePrincipalPolicy` evaluates the create, update, tag, pass-role,
    and delete action patterns listed in `scripts/permissions.sh`.
 
@@ -78,6 +78,32 @@ They cover:
 - S3 state and ALB log bucket lifecycle, encryption, versioning, policies,
   ownership, public-access blocking, objects, and tags;
 - AWS Budgets and email-subscriber lifecycle for actual and forecast cost alerts.
+
+Account inventory additionally requires `tag:GetResources`, `iam:ListUsers`,
+`iam:ListRoles`, and `iam:ListInstanceProfiles`. These read actions are included
+in the generated service-account policy because self-destruct review must fail,
+not silently omit sections, when its census cannot be completed.
+
+## Separate permission proof for service-account deletion
+
+The normal deployment service account deliberately cannot manage IAM users or
+their access keys. Therefore, selecting `--delete-service-account` requires a
+working local profile that resolves to the candidate IAM user plus a different
+cleanup IAM user/role or the explicit AWS-root exception. A user name alone is
+not accepted as ownership proof. Before the confirmation prompt,
+`self_destruct.sh` reads the exact bootstrap user's tags,
+credentials, memberships, and policy shape and asks IAM's read-only simulator
+about these three additional actions for a non-root cleanup principal:
+
+- `iam:DeleteAccessKey`;
+- `iam:DeleteUserPolicy`; and
+- `iam:DeleteUser`.
+
+Those actions are **not** added to the service-account policy. Root cannot be
+simulated and is permitted only with `--run-as-root`, which displays that proof
+limitation. Simulation remains evidence rather than certainty; an SCP,
+permission boundary, or later policy change can still block the actual call.
+See [SELF_DESTRUCT.md](SELF_DESTRUCT.md) before selecting identity removal.
 
 The bootstrap additionally calls `s3:PutBucketOwnershipControls`. Application
 publishing uses ECR upload actions. Human Session Manager use needs
