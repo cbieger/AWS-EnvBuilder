@@ -76,7 +76,8 @@ Run:
 Read the destroy plan. Only type `DESTROY AWS WORKSPACE` if the plan identifies
 the correct account/environment and only the intended resources. ECR images,
 CloudWatch groups, and ALB log objects are deliberately disposable and are
-removed with the runtime.
+removed with the runtime. The three Terraform-managed budget definitions are
+also removed; AWS's native Free Tier alert preference is not changed.
 
 The separate state bucket remains. After destroy succeeds:
 
@@ -86,8 +87,10 @@ The separate state bucket remains. After destroy succeeds:
    `Application=<project>` and `Environment=<environment>`.
 3. Check EC2 instances, load balancers, EBS volumes, public IPv4 insights, ECR,
    CloudWatch log groups, and S3 for unexpected leftovers.
-4. Recheck the Billing dashboard the next day because usage reporting is delayed.
-5. Keep the tiny state bucket for audit/recovery until the account owner approves
+4. Confirm the workspace budget names are gone, and keep a separately managed
+   account-level budget if monitoring must continue without the workspace.
+5. Recheck the Billing dashboard the next day because usage reporting is delayed.
+6. Keep the tiny state bucket for audit/recovery until the account owner approves
    its separate deletion and version-history retention obligations.
 
 If Terraform destroy partially fails, do not repeatedly delete random resources

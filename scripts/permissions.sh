@@ -65,6 +65,21 @@ readonly REQUIRED_ACTIONS=(
   "autoscaling:PutScalingPolicy"
   "autoscaling:StartInstanceRefresh"
   "autoscaling:UpdateAutoScalingGroup"
+  "budgets:CreateBudget"
+  "budgets:CreateNotification"
+  "budgets:CreateSubscriber"
+  "budgets:DeleteBudget"
+  "budgets:DeleteNotification"
+  "budgets:DeleteSubscriber"
+  "budgets:DescribeBudget"
+  "budgets:DescribeNotificationsForBudget"
+  "budgets:DescribeSubscribersForNotification"
+  "budgets:ListTagsForResource"
+  "budgets:TagResource"
+  "budgets:UntagResource"
+  "budgets:UpdateBudget"
+  "budgets:UpdateNotification"
+  "budgets:UpdateSubscriber"
   "ec2:AssociateRouteTable"
   "ec2:AttachInternetGateway"
   "ec2:AuthorizeSecurityGroupEgress"
@@ -182,6 +197,7 @@ readonly REQUIRED_ACTIONS=(
 
 identity_json=$(aws "${AWS_OPTIONS[@]}" sts get-caller-identity --output json) \
   || die "Unable to identify the authenticated AWS principal."
+account_id=$(printf '%s' "${identity_json}" | jq -r '.Account')
 caller_arn=$(printf '%s' "${identity_json}" | jq -r '.Arn')
 
 if [[ "${caller_arn}" == *":root" ]]; then
@@ -205,10 +221,15 @@ read_check() {
 
 read_check "EC2 networking" ec2 describe-vpcs --max-results 5
 read_check "Auto Scaling" autoscaling describe-auto-scaling-groups --max-records 1
-read_check "Application Load Balancers" elbv2 describe-load-balancers --page-size 1 --max-items 1
+# Some AWS CLI configurations disable automatic pagination. Combining that
+# setting with the generic --page-size/--max-items flags is rejected locally
+# before AWS receives a request, which looks like a permission failure. Request
+# only the service's first page so this remains a small, read-only access check.
+read_check "Application Load Balancers" elbv2 describe-load-balancers --no-paginate
 read_check "CloudWatch Logs" logs describe-log-groups --limit 1
 read_check "ECR" ecr describe-repositories --max-results 1
 read_check "S3" s3api list-buckets
+read_check "AWS Budgets" budgets describe-budgets --account-id "${account_id}" --max-results 1
 
 if [[ "${read_failures}" -gt 0 ]]; then
   die "${read_failures} required read check(s) failed. Ask an AWS administrator to review docs/PERMISSIONS.md."

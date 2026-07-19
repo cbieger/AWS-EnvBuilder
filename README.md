@@ -29,7 +29,9 @@ The default deployment creates:
 6. An Amazon ECR repository where a project-specific container image can live.
 7. CloudWatch log groups with 14-day routine retention and 90-day error
    retention, plus an S3 bucket for 30 days of ALB request logs.
-8. Encrypted root disks, required IMDSv2, security groups, and least-purpose
+8. Three account-wide monthly AWS Budgets that email on actual or forecast
+   gross spend above approximately $0.01, $1, and $5.
+9. Encrypted root disks, required IMDSv2, security groups, and least-purpose
    instance permissions.
 
 The instances are *stateless*: an instance can be terminated and replaced
@@ -176,8 +178,15 @@ cp terraform/terraform.tfvars.example terraform/terraform.tfvars
 ```
 
 Open `terraform/terraform.tfvars` in a text editor. At minimum, choose a short
-lowercase `project_name`, confirm `aws_region`, and review the allowed inbound
-network ranges. This real settings file is intentionally excluded from Git.
+lowercase `project_name`, enter at least one monitored `budget_alert_emails`
+address, confirm `aws_region`, and review the allowed inbound network ranges.
+This real settings file is intentionally excluded from Git.
+
+The cost budgets monitor the whole AWS account, not only resources carrying this
+project's tags. They notify; they do not stop or delete resources. Also verify
+that **Receive AWS Free Tier alerts** is enabled under Billing and Cost
+Management → Billing preferences so AWS can send its service-specific 85%
+Free Tier usage warnings.
 
 ### Step 4: prove the login and inspect permissions
 
@@ -262,9 +271,11 @@ and examples are in [the application integration guide](docs/APP_INTEGRATION.md)
 
 Destroy requires a separate exact phrase and uses a saved destroy plan. It
 removes the VPC, instances, load balancer, application images, and runtime logs.
-It keeps the separate Terraform state bucket so past state versions remain
-recoverable. [The teardown section](docs/TROUBLESHOOTING.md#safe-teardown) explains
-how to verify the billable resources are gone.
+It also removes this workspace's three Terraform-managed budget definitions;
+AWS's native Free Tier alerts remain an account preference. It keeps the separate
+Terraform state bucket so past state versions remain recoverable. [The teardown
+section](docs/TROUBLESHOOTING.md#safe-teardown) explains how to verify the
+billable resources are gone.
 
 ## Logs and retention
 

@@ -32,12 +32,12 @@ The commit must exclude:
 ## Proposed commit message
 
 ```text
-feat: add guarded stateless AWS development workspace
+feat: add layered AWS cost alerts
 
-- provision replaceable EC2 capacity behind an Application Load Balancer
-- add guarded setup, validation, cost, logging, deployment, and teardown tools
-- scan container application inputs before publishing images to Amazon ECR
-- document beginner-safe setup, command syntax, costs, permissions, and recovery
+- create account-wide monthly budgets at approximately $0.01, $1, and $5
+- email both actual and forecast alerts to required monitored addresses
+- extend IAM readiness checks for Budgets and correct false CLI failures
+- document Free Tier limitations, alert delays, and manual response requirements
 ```
 
 ## Required review workflow

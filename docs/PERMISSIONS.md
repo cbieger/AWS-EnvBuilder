@@ -9,7 +9,7 @@ read requests:
 2. The script refuses an ARN ending in `:root`.
 3. EC2 Availability Zone lookup proves the Region is enabled.
 4. Small list/describe calls test EC2, Auto Scaling, ELBv2, CloudWatch Logs, ECR,
-   and S3 read access.
+   S3, and AWS Budgets read access.
 5. IAM `SimulatePrincipalPolicy` evaluates the create, update, tag, pass-role,
    and delete action patterns listed in `scripts/permissions.sh`.
 
@@ -43,7 +43,8 @@ They cover:
 - CloudWatch Log Group lifecycle and queries;
 - ECR repository/lifecycle plus image push/read/delete;
 - S3 state and ALB log bucket lifecycle, encryption, versioning, policies,
-  ownership, public-access blocking, objects, and tags.
+  ownership, public-access blocking, objects, and tags;
+- AWS Budgets and email-subscriber lifecycle for actual and forecast cost alerts.
 
 The bootstrap additionally calls `s3:PutBucketOwnershipControls`. Application
 publishing uses ECR upload actions. Human Session Manager use needs

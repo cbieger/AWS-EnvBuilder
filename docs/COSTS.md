@@ -71,14 +71,44 @@ Check the actual account, not a memory of the marketing page:
 2. Open **Billing and Cost Management**.
 3. Open **Credits** and record the balance and expiration date.
 4. Open **Free Tier** and inspect current usage.
-5. Open **Budgets** and configure an account-level monthly cost budget and email
-   alerts. This generic Terraform deliberately does not guess a billing email.
+5. Under **Billing preferences**, verify **Receive AWS Free Tier alerts** is
+   enabled and that its destination email is monitored.
+6. Confirm the three Terraform-managed account-wide budgets exist and use the
+   monitored addresses configured in `budget_alert_emails`.
 
 Official references:
 
 - [AWS Free Tier announcement and credits](https://aws.amazon.com/about-aws/whats-new/2025/07/aws-free-tier-credits-month-free-plan/)
 - [AWS Free Tier FAQ](https://aws.amazon.com/free/free-tier-faqs/)
 - [EC2 Free Tier rules before and after July 15, 2025](https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/ec2-free-tier-usage.html)
+
+## Automated account-wide cost alerts
+
+Terraform creates three monthly AWS Budgets with limits of $0.01, $1, and $5.
+Every budget sends both an actual-spend alert and a forecast-spend alert to each
+address in `budget_alert_emails`. Credits and refunds are excluded from the
+calculation so they cannot hide gross service charges. The budgets cover the
+whole AWS account; they are not limited to this workspace's tags.
+
+The $0.01 budget implements a practical near-zero-spend warning. It cannot prove
+that every service-specific Free Tier allowance is exhausted. AWS's native Free
+Tier alerts separately email at 85% of eligible service limits and must remain
+enabled in Billing preferences.
+
+AWS Budgets without automated actions are currently free. Alerts are not instant:
+billing data may be delayed, and a forecast can require about five weeks of usage
+history. These alerts never stop resources. Always investigate the Billing
+console and use the guarded destroy command when charges are unexpected.
+The normal destroy workflow removes these workspace-owned budgets after removing
+the runtime. Keep AWS's native Free Tier alerts enabled, and manage a separate
+account-level budget if alerts must continue when no workspace exists.
+
+Official references:
+
+- [Tracking AWS Free Tier usage](https://docs.aws.amazon.com/awsaccountbilling/latest/aboutv2/tracking-free-tier-usage.html)
+- [Managing costs with AWS Budgets](https://docs.aws.amazon.com/cost-management/latest/userguide/budgets-managing-costs.html)
+- [AWS Budgets best practices](https://docs.aws.amazon.com/cost-management/latest/userguide/budgets-best-practices.html)
+- [AWS Budgets pricing](https://aws.amazon.com/aws-cost-management/aws-budgets/pricing/)
 
 ## Practical cost controls already included
 
@@ -88,6 +118,8 @@ Official references:
 - routine logs expire before error logs;
 - ALB request objects expire;
 - ECR keeps only twenty tagged images and removes old untagged images;
+- account-wide budgets alert near zero spend and at $1 and $5, using both actual
+  and forecast spend;
 - every apply repeats a large warning and exact approval phrase;
 - destroy is documented and guarded.
 

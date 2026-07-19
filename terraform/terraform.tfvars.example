@@ -5,6 +5,11 @@ project_name = "stub-app"
 environment  = "dev"
 aws_region   = "us-west-2"
 
+# Required: AWS Budgets emails these addresses when actual or forecast gross
+# monthly account spend exceeds approximately $0.01, $1, or $5. Use a monitored
+# mailbox. AWS Free Tier service-usage alerts must also remain enabled manually.
+budget_alert_emails = ["replace-with-monitored-address@example.com"]
+
 # Open internet access is convenient for a demo but is broader than most teams
 # need. Prefer a trusted office or VPN range, for example ["203.0.113.10/32"].
 allowed_ipv4_cidrs = ["0.0.0.0/0"]
