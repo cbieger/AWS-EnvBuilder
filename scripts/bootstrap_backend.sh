@@ -11,6 +11,7 @@ PROFILE=""
 REGION="us-west-2"
 PROJECT="stub-app"
 ENVIRONMENT="dev"
+RUN_AS_ROOT=false
 
 usage() {
   cat <<'USAGE'
@@ -21,6 +22,7 @@ Options:
   --region REGION         State bucket Region (default: us-west-2).
   --project NAME          3-24 lowercase letters/digits/hyphens.
   --environment NAME      3-12 lowercase letters/digits/hyphens.
+  --run-as-root           Exception: permit AWS account root for this command.
   --help                  Show this explanation.
 
 This is a one-time AWS write operation. The versioned state bucket remains after
@@ -50,6 +52,10 @@ while [[ $# -gt 0 ]]; do
       ENVIRONMENT="$2"
       shift 2
       ;;
+    --run-as-root)
+      RUN_AS_ROOT=true
+      shift
+      ;;
     --help|-h)
       usage
       exit 0
@@ -68,9 +74,11 @@ done
   || die "--region must look like us-west-2."
 
 begin_logged_run "bootstrap-backend"
+PROFILE="$(resolve_aws_profile "${PROFILE}")"
 
 preflight_args=(--region "${REGION}" --strict)
 [[ -n "${PROFILE}" ]] && preflight_args+=(--profile "${PROFILE}")
+[[ "${RUN_AS_ROOT}" == "true" ]] && preflight_args+=(--run-as-root)
 "${SCRIPT_DIR}/preflight.sh" "${preflight_args[@]}"
 
 AWS_OPTIONS=(--region "${REGION}")

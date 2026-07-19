@@ -11,6 +11,7 @@ REGION="us-west-2"
 STRICT=false
 SKIP_PERMISSIONS=false
 ALLOW_CLI_DRIFT=false
+RUN_AS_ROOT=false
 
 usage() {
   cat <<'USAGE'
@@ -23,6 +24,7 @@ Options:
   --allow-cli-drift    With --strict, warn rather than block emergency teardown
                        solely because a newer AWS CLI patch exists.
   --skip-permissions   Skip IAM policy simulation; useful only for local diagnosis.
+  --run-as-root        Exception: permit AWS account root for this command only.
   --help               Show this explanation.
 
 This script performs no AWS create, update, or delete request.
@@ -53,6 +55,10 @@ while [[ $# -gt 0 ]]; do
       ALLOW_CLI_DRIFT=true
       shift
       ;;
+    --run-as-root)
+      RUN_AS_ROOT=true
+      shift
+      ;;
     --help|-h)
       usage
       exit 0
@@ -64,6 +70,7 @@ while [[ $# -gt 0 ]]; do
 done
 
 begin_logged_run "preflight"
+PROFILE="$(resolve_aws_profile "${PROFILE}")"
 
 failures=0
 warnings=0
@@ -168,9 +175,7 @@ rm -f "${identity_file}"
 log_info "Authenticated AWS account: ${account_id}"
 log_info "Authenticated principal: ${caller_arn}"
 
-if [[ "${caller_arn}" == *":root" ]]; then
-  die "Refusing to deploy as the AWS account root user. Create or assume an administrative IAM role instead."
-fi
+enforce_non_root_aws_identity "${caller_arn}" "${RUN_AS_ROOT}"
 
 if ! aws "${AWS_OPTIONS[@]}" ec2 describe-availability-zones \
   --filters Name=opt-in-status,Values=opt-in-not-required,opted-in \
@@ -184,6 +189,7 @@ if [[ "${SKIP_PERMISSIONS}" != "true" ]]; then
   permission_args=(--region "${REGION}")
   [[ -n "${PROFILE}" ]] && permission_args+=(--profile "${PROFILE}")
   [[ "${STRICT}" == "true" ]] && permission_args+=(--strict)
+  [[ "${RUN_AS_ROOT}" == "true" ]] && permission_args+=(--run-as-root)
 
   set +e
   "${SCRIPT_DIR}/permissions.sh" "${permission_args[@]}"

@@ -14,10 +14,11 @@ fi
 
 PROFILE=""
 REGION="us-west-2"
+RUN_AS_ROOT=false
 
 usage() {
   cat <<'USAGE'
-Usage: ./scripts/workspace.sh COMMAND [--profile NAME] [--region REGION]
+Usage: ./scripts/workspace.sh COMMAND [--profile NAME] [--region REGION] [--run-as-root]
 
 Commands:
   validate   Check local code and Terraform; does not authenticate to AWS.
@@ -39,6 +40,9 @@ Examples:
 There is deliberately no blanket --yes option. A billable apply or destructive
 destroy always needs the exact phrase displayed on screen (or the matching
 WORKSPACE_EXACT_CONFIRMATION value in tightly controlled automation).
+
+Normal AWS commands refuse the AWS account root identity. --run-as-root is an
+exceptional per-command override; it does not bypass cost or destroy approval.
 USAGE
 }
 
@@ -54,6 +58,10 @@ while [[ $# -gt 0 ]]; do
       REGION="$2"
       shift 2
       ;;
+    --run-as-root)
+      RUN_AS_ROOT=true
+      shift
+      ;;
     --help|-h)
       usage
       exit 0
@@ -65,6 +73,15 @@ while [[ $# -gt 0 ]]; do
 done
 
 begin_logged_run "workspace-${COMMAND}"
+
+# Local-only commands remain usable for repair even when AWS is logged out or
+# a profile marker needs attention. Every command that can contact AWS resolves
+# and checks its selected identity through preflight below.
+case "${COMMAND}" in
+  preflight|init|plan|apply|status|logs|destroy)
+    PROFILE="$(resolve_aws_profile "${PROFILE}")"
+    ;;
+esac
 
 AWS_OPTIONS=(--region "${REGION}")
 if [[ -n "${PROFILE}" ]]; then
@@ -78,6 +95,7 @@ preflight_arguments=(--region "${REGION}" --strict)
 if [[ -n "${PROFILE}" ]]; then
   preflight_arguments+=(--profile "${PROFILE}")
 fi
+[[ "${RUN_AS_ROOT}" == "true" ]] && preflight_arguments+=(--run-as-root)
 
 require_backend_file() {
   if [[ ! -f "${TERRAFORM_DIR}/backend.hcl" ]]; then
@@ -102,6 +120,7 @@ run_strict_preflight() {
 run_destroy_preflight() {
   local destroy_preflight_arguments=(--region "${REGION}" --strict --allow-cli-drift)
   [[ -n "${PROFILE}" ]] && destroy_preflight_arguments+=(--profile "${PROFILE}")
+  [[ "${RUN_AS_ROOT}" == "true" ]] && destroy_preflight_arguments+=(--run-as-root)
   "${SCRIPT_DIR}/preflight.sh" "${destroy_preflight_arguments[@]}"
 }
 
@@ -127,6 +146,7 @@ case "${COMMAND}" in
   preflight)
     diagnostic_args=(--region "${REGION}")
     [[ -n "${PROFILE}" ]] && diagnostic_args+=(--profile "${PROFILE}")
+    [[ "${RUN_AS_ROOT}" == "true" ]] && diagnostic_args+=(--run-as-root)
     "${SCRIPT_DIR}/preflight.sh" "${diagnostic_args[@]}"
     ;;
 

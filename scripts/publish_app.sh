@@ -8,7 +8,7 @@ readonly SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "${SCRIPT_DIR}/lib/common.sh"
 
 if [[ $# -lt 1 ]]; then
-  die "Usage: ./scripts/publish_app.sh /absolute/path/to/application [--profile NAME] [--region REGION] [--tag TAG]"
+  die "Usage: ./scripts/publish_app.sh /absolute/path/to/application [--profile NAME] [--region REGION] [--tag TAG] [--run-as-root]"
 fi
 
 APPLICATION_PATH="$1"
@@ -16,6 +16,7 @@ shift
 PROFILE=""
 REGION="us-west-2"
 IMAGE_TAG=""
+RUN_AS_ROOT=false
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -34,8 +35,12 @@ while [[ $# -gt 0 ]]; do
       IMAGE_TAG="$2"
       shift 2
       ;;
+    --run-as-root)
+      RUN_AS_ROOT=true
+      shift
+      ;;
     --help|-h)
-      printf '%s\n' "Usage: ./scripts/publish_app.sh APP_PATH [--profile NAME] [--region REGION] [--tag TAG]"
+      printf '%s\n' "Usage: ./scripts/publish_app.sh APP_PATH [--profile NAME] [--region REGION] [--tag TAG] [--run-as-root]"
       exit 0
       ;;
     *)
@@ -48,6 +53,7 @@ APPLICATION_PATH="$(cd "${APPLICATION_PATH}" 2>/dev/null && pwd)" \
   || die "Application directory does not exist or is not readable."
 
 begin_logged_run "publish-app"
+PROFILE="$(resolve_aws_profile "${PROFILE}")"
 
 require_command docker "Install and start Docker Desktop/Engine using docs/WORKSTATION_SETUP.md."
 require_command terraform "Install Terraform 1.10 or newer using docs/WORKSTATION_SETUP.md."
@@ -56,6 +62,7 @@ docker info >/dev/null 2>&1 || die "Docker is installed but its engine is not ru
 
 preflight_args=(--region "${REGION}" --strict)
 [[ -n "${PROFILE}" ]] && preflight_args+=(--profile "${PROFILE}")
+[[ "${RUN_AS_ROOT}" == "true" ]] && preflight_args+=(--run-as-root)
 "${SCRIPT_DIR}/preflight.sh" "${preflight_args[@]}"
 
 log_info "Inspecting every eligible application file before Docker ingestion."

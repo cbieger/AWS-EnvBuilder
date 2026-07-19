@@ -8,6 +8,7 @@ readonly COMMON_LIBRARY_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 readonly WORKSPACE_ROOT="$(cd "${COMMON_LIBRARY_DIR}/../.." && pwd)"
 readonly TERRAFORM_DIR="${WORKSPACE_ROOT}/terraform"
 readonly WORKSPACE_LOG_ROOT="${WORKSPACE_LOG_DIR:-${WORKSPACE_ROOT}/logs}"
+readonly WORKSPACE_SERVICE_PROFILE_FILE="${WORKSPACE_SERVICE_PROFILE_FILE:-${WORKSPACE_ROOT}/.workspace/service-account-profile}"
 
 timestamp_utc() {
   date -u +'%Y-%m-%dT%H:%M:%SZ'
@@ -38,6 +39,62 @@ require_command() {
     log_error "Required program '${command_name}' was not found."
     log_error "${help_text}"
     return 1
+  fi
+}
+
+# A successful first-run bootstrap records only the AWS CLI profile name—not a
+# credential—in an ignored local marker. Explicit --profile always wins.
+resolve_aws_profile() {
+  local requested_profile="${1:-}"
+  local saved_profile=""
+
+  if [[ -n "${requested_profile}" ]]; then
+    printf '%s\n' "${requested_profile}"
+    return 0
+  fi
+
+  if [[ -f "${WORKSPACE_SERVICE_PROFILE_FILE}" ]]; then
+    IFS= read -r saved_profile <"${WORKSPACE_SERVICE_PROFILE_FILE}"
+    [[ "${saved_profile}" =~ ^[A-Za-z0-9_.@+-]{1,128}$ ]] \
+      || die "Saved AWS profile marker is invalid: ${WORKSPACE_SERVICE_PROFILE_FILE}"
+    printf '%s\n' "${saved_profile}"
+    return 0
+  fi
+
+  printf '\n'
+}
+
+is_aws_root_arn() {
+  [[ "${1:-}" =~ ^arn:[^:]+:iam::[0-9]{12}:root$ ]]
+}
+
+# All normal operations refuse AWS account root. The explicit override is
+# intentionally verbose so a copied flag never looks like ordinary operation.
+enforce_non_root_aws_identity() {
+  local caller_arn="$1"
+  local allow_root="${2:-false}"
+
+  if ! is_aws_root_arn "${caller_arn}"; then
+    return 0
+  fi
+
+  if [[ "${allow_root}" == "true" ]]; then
+    log_warning "ROOT OVERRIDE ACTIVE: --run-as-root explicitly permits AWS account root for this command."
+    log_warning "Root bypasses normal IAM boundaries. Stop unless this exceptional use is intentional."
+    return 0
+  fi
+
+  die "Refusing AWS account root. Run scripts/first_run_setup.sh once, then use its saved service-account profile. Exceptional root use requires --run-as-root."
+}
+
+# The bootstrap has the inverse rule: it must prove the one-time caller is AWS
+# account root. This checks AWS identity only; it never checks the operating-
+# system user and must never be run with sudo merely to satisfy the requirement.
+require_aws_root_identity() {
+  local caller_arn="$1"
+
+  if ! is_aws_root_arn "${caller_arn}"; then
+    die "First run requires the AWS account root identity. Do not use sudo. Sign in to AWS root with 'aws login --profile aws-root-bootstrap', then pass --root-profile aws-root-bootstrap."
   fi
 }
 
@@ -176,6 +233,8 @@ Preferred short-lived login:
 
 If the account supports AWS CLI browser login, `aws login` may be used instead.
 If an administrator gave you long-lived access keys, use `aws configure
---profile YOUR_PROFILE_NAME` interactively. Never use the AWS account root user.
+--profile YOUR_PROFILE_NAME` interactively. After first-run setup, normal
+workspace commands refuse the AWS account root user unless --run-as-root is
+explicitly supplied.
 AUTH_HELP
 }

@@ -10,15 +10,20 @@ source "${SCRIPT_DIR}/lib/common.sh"
 PROFILE=""
 REGION="us-west-2"
 STRICT=false
+RUN_AS_ROOT=false
+PRINT_SERVICE_POLICY=false
 
 usage() {
   cat <<'USAGE'
-Usage: ./scripts/permissions.sh [--profile NAME] [--region REGION] [--strict]
+Usage: ./scripts/permissions.sh [--profile NAME] [--region REGION] [--strict] [--run-as-root]
 
 The IAM simulator is the safest available pre-deployment check for create and
 delete actions. It cannot include every Service Control Policy, permission
 boundary, tag condition, quota, or eventual runtime condition. Terraform's
 saved plan and actual apply remain the final checks.
+
+--run-as-root is an exceptional override. Root cannot be simulated, so the
+script performs read checks and prints a prominent warning instead.
 USAGE
 }
 
@@ -38,6 +43,16 @@ while [[ $# -gt 0 ]]; do
       STRICT=true
       shift
       ;;
+    --run-as-root)
+      RUN_AS_ROOT=true
+      shift
+      ;;
+    --print-service-policy)
+      # Internal packaging/bootstrap interface. It prints no credential and
+      # performs no AWS request.
+      PRINT_SERVICE_POLICY=true
+      shift
+      ;;
     --help|-h)
       usage
       exit 0
@@ -47,13 +62,6 @@ while [[ $# -gt 0 ]]; do
       ;;
   esac
 done
-
-begin_logged_run "permissions"
-
-AWS_OPTIONS=(--region "${REGION}")
-if [[ -n "${PROFILE}" ]]; then
-  AWS_OPTIONS+=(--profile "${PROFILE}")
-fi
 
 readonly REQUIRED_ACTIONS=(
   "autoscaling:AttachLoadBalancerTargetGroups"
@@ -164,6 +172,7 @@ readonly REQUIRED_ACTIONS=(
   "iam:PassRole"
   "iam:PutRolePolicy"
   "iam:RemoveRoleFromInstanceProfile"
+  "iam:SimulatePrincipalPolicy"
   "iam:TagInstanceProfile"
   "iam:TagRole"
   "iam:UntagInstanceProfile"
@@ -195,14 +204,46 @@ readonly REQUIRED_ACTIONS=(
   "s3:PutObject"
 )
 
+if [[ "${PRINT_SERVICE_POLICY}" == "true" ]]; then
+  require_command python3 "Python 3.9 or newer is required to render the service-account policy."
+  python3 - "${REQUIRED_ACTIONS[@]}" <<'PY'
+import json
+import sys
+
+# Actions are passed as individual arguments so no shell evaluation or policy
+# text parsing is involved. Resource "*" is required because this reusable kit
+# cannot know future account IDs, generated names, buckets, or IAM role ARNs.
+policy = {
+    "Version": "2012-10-17",
+    "Statement": [
+        {
+            "Sid": "AWSenvBuilderRequiredActions",
+            "Effect": "Allow",
+            "Action": sorted(set(sys.argv[1:])),
+            "Resource": "*",
+        }
+    ],
+}
+json.dump(policy, sys.stdout, indent=2)
+sys.stdout.write("\n")
+PY
+  exit 0
+fi
+
+begin_logged_run "permissions"
+PROFILE="$(resolve_aws_profile "${PROFILE}")"
+
+AWS_OPTIONS=(--region "${REGION}")
+if [[ -n "${PROFILE}" ]]; then
+  AWS_OPTIONS+=(--profile "${PROFILE}")
+fi
+
 identity_json=$(aws "${AWS_OPTIONS[@]}" sts get-caller-identity --output json) \
   || die "Unable to identify the authenticated AWS principal."
 account_id=$(printf '%s' "${identity_json}" | jq -r '.Account')
 caller_arn=$(printf '%s' "${identity_json}" | jq -r '.Arn')
 
-if [[ "${caller_arn}" == *":root" ]]; then
-  die "The AWS root user is not an acceptable deployment identity."
-fi
+enforce_non_root_aws_identity "${caller_arn}" "${RUN_AS_ROOT}"
 
 log_info "Testing read access for ${caller_arn}."
 read_failures=0
@@ -233,6 +274,12 @@ read_check "AWS Budgets" budgets describe-budgets --account-id "${account_id}" -
 
 if [[ "${read_failures}" -gt 0 ]]; then
   die "${read_failures} required read check(s) failed. Ask an AWS administrator to review docs/PERMISSIONS.md."
+fi
+
+if is_aws_root_arn "${caller_arn}"; then
+  log_warning "IAM policy simulation is unavailable for AWS account root and was skipped under the explicit override."
+  log_warning "Read checks passed, but no least-privilege proof exists for root."
+  exit 0
 fi
 
 # SimulatePrincipalPolicy accepts an IAM user or role ARN, not the temporary STS
@@ -273,6 +320,12 @@ while [[ "${offset}" -lt "${#REQUIRED_ACTIONS[@]}" ]]; do
       die "Strict permission proof failed. Grant simulation access or have an AWS administrator run this check."
     fi
     exit 2
+  fi
+
+  evaluation_count=$(jq -r '.EvaluationResults | length' "${simulation_file}")
+  if [[ "${evaluation_count}" -ne "${#action_chunk[@]}" ]]; then
+    rm -f "${simulation_file}"
+    die "IAM simulation returned ${evaluation_count} result(s) for ${#action_chunk[@]} requested actions; refusing an incomplete permission proof."
   fi
 
   chunk_not_allowed=$(jq -r \
