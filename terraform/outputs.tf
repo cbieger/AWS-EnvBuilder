@@ -29,3 +29,8 @@ output "estimated_running_instance_range" {
   description = "Cost reminder: Auto Scaling may run any count in this range."
   value       = "${var.minimum_instances}-${var.maximum_instances} ${var.instance_type} instances"
 }
+
+output "monthly_cost_budget_names" {
+  description = "Account-wide AWS Budgets that email on actual or forecast gross monthly spend beyond the configured thresholds."
+  value       = sort([for budget in aws_budgets_budget.monthly_cost_alert : budget.name])
+}

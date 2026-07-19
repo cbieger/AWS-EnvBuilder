@@ -204,6 +204,23 @@ variable "alb_access_log_retention_days" {
   }
 }
 
+variable "budget_alert_emails" {
+  description = "One to ten email addresses that receive actual and forecast monthly cost alerts at approximately $0.01, $1, and $5."
+  type        = list(string)
+
+  validation {
+    condition = (
+      length(var.budget_alert_emails) >= 1 &&
+      length(var.budget_alert_emails) <= 10 &&
+      alltrue([
+        for email in var.budget_alert_emails :
+        can(regex("^[^@[:space:]]+@[^@[:space:]]+\\.[^@[:space:]]+$", email))
+      ])
+    )
+    error_message = "budget_alert_emails must contain 1-10 ordinary email addresses. Never place passwords, tokens, or mail credentials here."
+  }
+}
+
 variable "additional_tags" {
   description = "Optional non-secret business tags applied to supported resources."
   type        = map(string)

@@ -133,7 +133,7 @@ fi
 latest_aws_version=""
 if latest_aws_version=$(curl -fsSL --max-time 15 \
   https://raw.githubusercontent.com/aws/aws-cli/v2/CHANGELOG.rst \
-  | awk '/^[0-9]+\.[0-9]+\.[0-9]+$/ { print; exit }'); then
+  | awk '!found && /^[0-9]+\.[0-9]+\.[0-9]+$/ { print; found = 1 }'); then
   if [[ -z "${latest_aws_version}" ]]; then
     log_warning "The official AWS CLI changelog was reachable but no version could be parsed."
     warnings=$((warnings + 1))

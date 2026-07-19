@@ -18,8 +18,10 @@ flowchart LR
     instance2 -.-> cw
     alb --> s3logs["30-day S3 request logs"]
     terraform["Terraform on operator computer"] --> state["Versioned S3 state"]
+    budgets["AWS Budgets: $0.01, $1, and $5"] -.-> email["Monitored alert email"]
     terraform --> alb
     terraform --> asg
+    terraform --> budgets
 ```
 
 A solid arrow is always used by the default one-instance workspace. A dotted
@@ -100,6 +102,19 @@ and failures for 90 days/100 files.
 Application teams must write useful errors to stderr without credentials,
 tokens, authorization headers, cookies, or personal data. Infrastructure cannot
 correct unsafe application logging.
+
+### Cost alerts
+
+Three account-wide monthly AWS Budgets monitor gross costs before credits or
+refunds reduce the bill. Each sends both actual and forecast notifications to
+the required `budget_alert_emails` addresses when spend exceeds approximately
+$0.01, $1, or $5. The $0.01 threshold is a near-zero-spend warning, not a
+service-by-service Free Tier meter. AWS's native Free Tier alerts remain a
+separate Billing preference and should stay enabled.
+
+Budgets are alarms, not circuit breakers. Billing data is delayed, forecasts may
+need weeks of history, and resources continue running after an alert. An operator
+must investigate and run the guarded destroy workflow when appropriate.
 
 ## What "stateless" requires from the application
 
