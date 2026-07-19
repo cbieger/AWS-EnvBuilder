@@ -14,6 +14,14 @@ terraform/application.auto.tfvars.json
 terraform/terraform.tfvars
 !terraform/terraform.tfvars.example
 
+# First-run stores only the selected local AWS CLI profile name here. The marker
+# is workstation/account-specific and must not be shared between projects.
+.workspace/
+
+# Portable release archives are generated output. Review their checksum and
+# distribute them separately; do not duplicate binary archives in source Git.
+dist/
+
 # Runtime logs are local evidence, not source code. Keep only the directory markers.
 logs/**/*.log
 logs/active/*

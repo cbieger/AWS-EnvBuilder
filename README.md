@@ -9,6 +9,12 @@ and approval before Terraform is allowed to change AWS.
 No AWS resource is created merely by downloading this repository or running
 the local `validate` command.
 
+New accounts use a guarded one-time identity handoff: AWS account root creates
+one dedicated IAM service account, then every routine AWS command refuses root
+unless the operator explicitly adds `--run-as-root`. Here, “root” always means
+the AWS account root identity—not `sudo` or the computer's root user. Read the
+[literal first-run guide](docs/FIRST_RUN.md) before creating that identity.
+
 <p><font color="red" size="6"><strong>THIS WORKSPACE IS NOT GUARANTEED TO BE FREE. THE DEFAULT LOW-TRAFFIC BUILD IS ESTIMATED AT ABOUT US$1.40 PER DAY (ABOUT US$42 PER 30-DAY MONTH) IN US-WEST-2, BEFORE TAX, HEAVY TRAFFIC, OR UNUSUAL LOG VOLUME.</strong></font></p>
 
 AWS prices and Free Tier rules change. Read [the cost guide](docs/COSTS.md)
@@ -51,13 +57,15 @@ used in technical documentation.
 The main command has this shape:
 
 ```text
-./scripts/workspace.sh COMMAND [--profile PROFILE_NAME] [--region AWS_REGION]
+./scripts/workspace.sh COMMAND [--profile PROFILE_NAME] [--region AWS_REGION] [--run-as-root]
 ```
 
 - `COMMAND` is one action from the table below.
-- `--profile` selects the named AWS CLI login. It is optional only when the
-  default AWS credential chain is intentionally configured.
+- `--profile` selects the named AWS CLI login. If omitted after first run, the
+  ignored local service-profile marker is selected automatically.
 - `--region` selects the AWS Region. If omitted, it defaults to `us-west-2`.
+- `--run-as-root` is an exceptional one-command override of the AWS-root block.
+  It never bypasses cost or destruction confirmation.
 - Square brackets in the syntax mean "optional." Do not type the brackets.
 - Run `./scripts/workspace.sh help` whenever you need the short built-in help.
 
@@ -94,19 +102,28 @@ Common examples:
 The supporting commands use these forms:
 
 ```text
-./scripts/bootstrap_backend.sh [--profile PROFILE_NAME] [--region AWS_REGION] [--project PROJECT_NAME] [--environment ENVIRONMENT_NAME]
+./scripts/first_run_setup.sh [--root-profile ROOT_PROFILE] [--region AWS_REGION] [--service-account IAM_USER] [--service-profile LOCAL_PROFILE]
+./scripts/bootstrap_backend.sh [--profile PROFILE_NAME] [--region AWS_REGION] [--project PROJECT_NAME] [--environment ENVIRONMENT_NAME] [--run-as-root]
 ./scripts/inspect_app.sh APPLICATION_DIRECTORY [--json]
-./scripts/publish_app.sh APPLICATION_DIRECTORY [--profile PROFILE_NAME] [--region AWS_REGION] [--tag IMAGE_TAG]
+./scripts/publish_app.sh APPLICATION_DIRECTORY [--profile PROFILE_NAME] [--region AWS_REGION] [--tag IMAGE_TAG] [--run-as-root]
 ./scripts/cost_estimate.py [--instances INSTANCE_COUNT]
 ./scripts/rotate_logs.sh
+./scripts/package.sh [--output DIRECTORY] [--version LABEL]
 ```
 
 Examples with actual values:
 
 ```bash
+# One-time AWS account-root handoff to the service account. This changes IAM.
+aws login --profile aws-root-bootstrap
+./scripts/first_run_setup.sh \
+  --root-profile aws-root-bootstrap \
+  --region us-west-2 \
+  --service-account aws-envbuilder-automation
+aws logout --profile aws-root-bootstrap
+
 # One-time protected state storage setup. This changes AWS after confirmation.
 ./scripts/bootstrap_backend.sh \
-  --profile company-dev \
   --region us-west-2 \
   --project customer-demo \
   --environment dev
@@ -116,7 +133,6 @@ Examples with actual values:
 
 # Build and push an approved app image after the infrastructure exists.
 ./scripts/publish_app.sh /Users/your-name/projects/customer-app \
-  --profile company-dev \
   --region us-west-2 \
   --tag release-2026-07-19
 
@@ -125,6 +141,9 @@ Examples with actual values:
 
 # Apply the documented local log age/count limits immediately.
 ./scripts/rotate_logs.sh
+
+# Create a portable, source-only release and SHA-256 checksum under dist/.
+./scripts/package.sh --version 1.0.0
 ```
 
 All helpers return exit code `0` when they finish successfully and a nonzero
@@ -136,8 +155,8 @@ confirmation phrase displayed at runtime.
 ## The safe path from zero to a running workspace
 
 The examples below assume macOS or Linux, a terminal opened in this repository,
-and an AWS account whose owner has provided an IAM user or role. Do **not** use
-the AWS account root user for daily deployment work.
+and permission from the AWS account owner to perform the one-time identity
+handoff. Do **not** use the AWS account root user for daily deployment work.
 
 ### Step 1: validate the downloaded code without contacting AWS
 
@@ -151,27 +170,46 @@ This checks formatting, shell syntax, Python tests, and Terraform structure. It
 does not create, update, or delete AWS resources. If a required program is
 missing, follow [the workstation setup guide](docs/WORKSTATION_SETUP.md).
 
-### Step 2: sign in to AWS safely
+### Step 2: perform the one-time AWS root-to-service-account handoff
 
-This computer currently needs an AWS login. Prefer a short-lived browser login:
-
-```bash
-aws configure sso
-aws sso login --profile YOUR_PROFILE_NAME
-```
-
-If the account supports the newer AWS CLI login flow, this may instead work:
+“Root” in this step means AWS account root. Do not use `sudo`. Open temporary
+browser credentials under a clearly named profile, verify the ARN ends in
+`:root`, and run the guarded setup:
 
 ```bash
-aws login
+aws login --profile aws-root-bootstrap
+aws sts get-caller-identity --profile aws-root-bootstrap
+./scripts/first_run_setup.sh \
+  --root-profile aws-root-bootstrap \
+  --region us-west-2
 ```
 
-Never paste a secret access key into this repository, a Terraform file, a chat,
-or a shell command that will be logged. If the organization only provides
-access keys, run `aws configure --profile YOUR_PROFILE_NAME` interactively and
-store the values only in the AWS CLI's protected credential store.
+The setup prompts for the new IAM service-account name, displays the proposal,
+and requires `CREATE AWS SERVICE ACCOUNT`. It creates one service user and one
+long-term key, writes that key directly into the protected AWS CLI credentials
+file without displaying it, proves the new identity's permissions, and saves
+only its local profile name under ignored `.workspace/`.
 
-### Step 3: copy and edit the small settings file
+Terraform does not perform this handoff because an access key created by
+Terraform would be retained in Terraform state, and Terraform cannot safely
+change the credentials of its already-running provider midway through a run.
+The setup helper finishes before Terraform begins. AWS recommends temporary
+roles or IAM Identity Center instead of long-term keys where practical; see the
+[first-run guide](docs/FIRST_RUN.md) for the tradeoff and exact recovery steps.
+
+### Step 3: end root and prove automatic service-account selection
+
+```bash
+aws logout --profile aws-root-bootstrap
+./scripts/workspace.sh preflight --region us-west-2
+```
+
+The printed principal must end in `:user/YOUR_SERVICE_ACCOUNT`, not `:root`.
+Future helpers use the saved service profile when `--profile` is omitted. An
+explicit profile still wins. If any AWS-facing command detects root, it fails;
+only a deliberate per-command `--run-as-root` override permits it.
+
+### Step 4: copy and edit the small settings file
 
 ```bash
 cp terraform/terraform.tfvars.example terraform/terraform.tfvars
@@ -188,12 +226,10 @@ that **Receive AWS Free Tier alerts** is enabled under Billing and Cost
 Management → Billing preferences so AWS can send its service-specific 85%
 Free Tier usage warnings.
 
-### Step 4: prove the login and inspect permissions
-
-Replace `YOUR_PROFILE_NAME` below with the profile created in Step 2:
+### Step 5: prove the login and inspect permissions
 
 ```bash
-./scripts/workspace.sh preflight --profile YOUR_PROFILE_NAME --region us-west-2
+./scripts/workspace.sh preflight --region us-west-2
 ```
 
 The check is read-only. It identifies the account and caller, tests common read
@@ -202,14 +238,13 @@ create and delete every resource in this build. Policy simulation cannot see
 every organization-level restriction; [the permissions guide](docs/PERMISSIONS.md)
 explains that limitation and lists the actions.
 
-### Step 5: create a protected Terraform state bucket
+### Step 6: create a protected Terraform state bucket
 
 Terraform state is the inventory Terraform uses to remember what it owns. Losing
 it is dangerous. Create its small, encrypted, versioned S3 bucket once:
 
 ```bash
 ./scripts/bootstrap_backend.sh \
-  --profile YOUR_PROFILE_NAME \
   --region us-west-2 \
   --project demo \
   --environment dev
@@ -218,27 +253,27 @@ it is dangerous. Create its small, encrypted, versioned S3 bucket once:
 The script displays what it will do and requires an exact confirmation. The
 state bucket is deliberately *not* deleted by the normal workspace teardown.
 
-### Step 6: preview the exact AWS proposal
+### Step 7: preview the exact AWS proposal
 
 ```bash
-./scripts/workspace.sh plan --profile YOUR_PROFILE_NAME --region us-west-2
+./scripts/workspace.sh plan --region us-west-2
 ```
 
 Read the entire Terraform summary. A plus sign means "create," a tilde means
 "change," and a minus sign means "delete." The saved proposal is
 `terraform/workspace.tfplan`; it is not committed to Git.
 
-### Step 7: create the resources only after approving cost
+### Step 8: create the resources only after approving cost
 
 ```bash
-./scripts/workspace.sh apply --profile YOUR_PROFILE_NAME --region us-west-2
+./scripts/workspace.sh apply --region us-west-2
 ```
 
 The helper creates a fresh plan, displays it again, prints a large red cost
 warning, and requires the exact phrase shown on screen. Terraform then applies
 only that saved plan. When complete, the command prints the application URL.
 
-### Step 8: attach an application
+### Step 9: attach an application
 
 The application must contain a `Dockerfile`, a `.dockerignore`, and an HTTP
 health endpoint. First inspect it without changing AWS:
@@ -251,7 +286,6 @@ Then build and push it. Pushing changes ECR and therefore requires confirmation:
 
 ```bash
 ./scripts/publish_app.sh /absolute/path/to/application \
-  --profile YOUR_PROFILE_NAME \
   --region us-west-2
 ```
 
@@ -259,14 +293,14 @@ The script records the immutable image digest in a local ignored settings file.
 Run `plan`, read the instance-replacement proposal, and run `apply`. Full rules
 and examples are in [the application integration guide](docs/APP_INTEGRATION.md).
 
-### Step 9: inspect or remove the workspace
+### Step 10: inspect or remove the workspace
 
 ```bash
 # Show the URL and current Auto Scaling instances.
-./scripts/workspace.sh status --profile YOUR_PROFILE_NAME --region us-west-2
+./scripts/workspace.sh status --region us-west-2
 
 # Preview and then permanently remove the application workspace.
-./scripts/workspace.sh destroy --profile YOUR_PROFILE_NAME --region us-west-2
+./scripts/workspace.sh destroy --region us-west-2
 ```
 
 Destroy requires a separate exact phrase and uses a saved destroy plan. It
@@ -291,6 +325,15 @@ Log rotation runs automatically at the start of every helper. It can also be
 run manually with `./scripts/rotate_logs.sh`. Logs can contain account IDs,
 resource names, and application output, so they are excluded from Git. The
 helpers never deliberately log secret keys or session tokens.
+
+## Reusable package
+
+Run `./scripts/package.sh --version LABEL` to create a source-only `.tar.gz` and
+matching SHA-256 file under ignored `dist/`. The packager uses a narrow allowlist
+and excludes Git history, local identity markers, credentials, state, plans,
+real variables, providers, logs, and unrelated workspace files. Follow the
+[packaging guide](docs/PACKAGING.md) to verify, extract, and attach the kit to
+another application repository.
 
 ## Git policy
 

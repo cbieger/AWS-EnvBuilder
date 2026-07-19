@@ -75,7 +75,6 @@ Apply the default workspace once so ECR exists, then run:
 
 ```bash
 ./scripts/publish_app.sh /absolute/path/to/application \
-  --profile YOUR_PROFILE_NAME \
   --region us-west-2
 ```
 
@@ -94,9 +93,13 @@ to ignored `terraform/application.auto.tfvars.json`. No EC2 change occurs yet.
 ## Preview and roll out
 
 ```bash
-./scripts/workspace.sh plan --profile YOUR_PROFILE_NAME --region us-west-2
-./scripts/workspace.sh apply --profile YOUR_PROFILE_NAME --region us-west-2
+./scripts/workspace.sh plan --region us-west-2
+./scripts/workspace.sh apply --region us-west-2
 ```
+
+These examples rely on the ignored service profile recorded during first run.
+Supply `--profile NAME` only to deliberately override it. AWS account root is
+refused unless an exceptional invocation also includes `--run-as-root`.
 
 The plan should show a new launch-template version and Auto Scaling instance
 refresh. During the one-instance development refresh, brief unavailability is

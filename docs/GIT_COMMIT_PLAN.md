@@ -12,11 +12,11 @@ The proposed commit contains only this workspace's reviewed source artifacts:
 - `.gitignore`;
 - `README.md`;
 - `docs/` guides for architecture, costs, setup, permissions, application
-  integration, troubleshooting, and this commit plan;
+  integration, first run, packaging, troubleshooting, and this commit plan;
 - `scripts/` guarded operational helpers and scanner;
 - `terraform/` declarations, bootstrap template, documented
   variable example, and `.terraform.lock.hcl` provider checksums;
-- `tests/` Python scanner tests.
+- `tests/` Python scanner, identity-guard, generated-policy, and package tests.
 
 The commit must exclude:
 
@@ -32,12 +32,13 @@ The commit must exclude:
 ## Proposed commit message
 
 ```text
-feat: add layered AWS cost alerts
+feat: package guarded AWS service-account bootstrap
 
-- create account-wide monthly budgets at approximately $0.01, $1, and $5
-- email both actual and forecast alerts to required monitored addresses
-- extend IAM readiness checks for Budgets and correct false CLI failures
-- document Free Tier limitations, alert delays, and manual response requirements
+- require AWS account root only for the one-time service-user handoff
+- default later commands to the saved local profile and refuse root by default
+- add an explicit per-command root override without bypassing approvals
+- build source-only portable archives with checksums and exclusion tests
+- document identity risk, rollback, packaging, usage, and recovery step by step
 ```
 
 ## Required review workflow

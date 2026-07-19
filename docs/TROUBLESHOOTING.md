@@ -6,14 +6,48 @@ sooner; failures remain for 90 days by default.
 
 ## Preflight says there are no credentials
 
-Run `aws configure sso`, then `aws sso login --profile NAME`. Verify with:
+If this is a brand-new standalone account, complete
+[`FIRST_RUN.md`](FIRST_RUN.md). If first run already succeeded, inspect the
+saved non-secret profile name:
+
+```bash
+sed -n '1p' .workspace/service-account-profile
+aws configure list-profiles
+```
+
+For an organization-provided SSO profile, run `aws configure sso`, then
+`aws sso login --profile NAME`. Verify with:
 
 ```bash
 aws sts get-caller-identity --profile NAME
 ```
 
 The account ID must be the intended account, and the ARN must not be root. Pass
-the same `--profile NAME` to every workspace helper.
+the same `--profile NAME` when overriding the saved local service profile.
+
+## A normal command refuses AWS root
+
+This is the expected failsafe. “Root” means the AWS account root ARN returned by
+STS, not the operating-system account and not `sudo`. End the AWS root session
+and use the service profile created by first run:
+
+```bash
+aws logout --profile aws-root-bootstrap
+./scripts/workspace.sh preflight --region us-west-2
+```
+
+Use `--run-as-root` only for an exceptional, owner-approved root operation. It
+applies to one invocation, prints warnings, cannot produce an IAM simulation,
+and does not bypass cost/destruction confirmation.
+
+## First run stopped partway through
+
+Read the retained transcript under `logs/errors/`. The helper attempts to remove
+only the new access key, inline policy, IAM user, and local profile sections made
+by that failed run. If cleanup reports an error, have the account owner compare
+IAM and the local AWS profile immediately; do not rerun until the half-created
+identity is reconciled. The secret key is never intentionally logged, so it
+cannot be recovered from the transcript.
 
 ## Strict preflight says AWS CLI is not current
 
@@ -70,7 +104,7 @@ log secrets, authorization headers, or full sensitive requests.
 Run:
 
 ```bash
-./scripts/workspace.sh destroy --profile YOUR_PROFILE_NAME --region us-west-2
+./scripts/workspace.sh destroy --region us-west-2
 ```
 
 Read the destroy plan. Only type `DESTROY AWS WORKSPACE` if the plan identifies

@@ -2,11 +2,13 @@
 
 ## What the preflight proves
 
-`./scripts/workspace.sh preflight --profile NAME --region REGION` performs only
-read requests:
+`./scripts/workspace.sh preflight --region REGION` performs only read requests.
+After first run it automatically selects the saved service profile; an explicit
+`--profile NAME` overrides that selection.
 
 1. `sts:GetCallerIdentity` proves the credential works and names the account.
-2. The script refuses an ARN ending in `:root`.
+2. The script refuses an AWS account-root ARN unless that single invocation has
+   the exceptional `--run-as-root` flag.
 3. EC2 Availability Zone lookup proves the Region is enabled.
 4. Small list/describe calls test EC2, Auto Scaling, ELBv2, CloudWatch Logs, ECR,
    S3, and AWS Budgets read access.
@@ -14,6 +16,33 @@ read requests:
    and delete action patterns listed in `scripts/permissions.sh`.
 
 No test resource is created and nothing is deleted.
+
+## One-time bootstrap identity and policy
+
+`first_run_setup.sh` has the opposite identity rule: it accepts only the AWS
+account root ARN. That root session is used once to create the requested IAM
+service account and is then logged out. The bootstrap is intentionally Bash,
+not Terraform, because a Terraform-managed access key would be present in state
+and an already-running Terraform provider cannot safely switch itself to a key
+it just created.
+
+The inline service-user policy is generated from the exact `REQUIRED_ACTIONS`
+array in `scripts/permissions.sh`. This keeps first-run access and later policy
+simulation aligned. It deliberately excludes IAM user/access-key management;
+the service account has no direct `iam:CreateUser` or `iam:CreateAccessKey`
+allowance. It does include powerful role/instance/network/state lifecycle
+operations required by this reusable deployer, including role-policy writes and
+`iam:PassRole`. That combination is privilege-escalation-capable and uses
+`Resource: "*"` because generic packaging cannot know future accounts and
+generated names. Treat it as an infrastructure-administrator credential. An
+organization should replace it with a temporary role, permission boundary, and
+narrower ARN/tag conditions.
+
+The access key is written directly to the standard AWS shared credentials file
+with restrictive permissions and is never intentionally printed. AWS recommends
+temporary credentials, roles, or IAM Identity Center instead of long-term keys
+where practical. See [FIRST_RUN.md](FIRST_RUN.md) for the exact handoff, rollback,
+rotation, and incident procedure.
 
 ## Important limitation
 
@@ -27,6 +56,10 @@ Strict mode fails if simulation is denied. An administrator may grant the caller
 `iam:SimulatePrincipalPolicy` on its own IAM user/role, run the check on the
 caller's behalf, or review the action list manually. Do not blindly attach
 `AdministratorAccess` merely to make a preflight green.
+
+AWS root cannot be a policy-simulation source. With the explicit root override,
+the helpers perform read checks, display prominent warnings, and skip simulation;
+that path therefore cannot prove least-privilege readiness.
 
 ## Permission families the deployer needs
 
@@ -75,3 +108,5 @@ are even better in a team environment.
   provide only that evidence to the administrator. Do not send credential files.
 - Wrong account ID: stop. Log out or choose the correct profile. Never "try it"
   in the wrong account.
+- Root refusal: use the saved first-run service profile. Do not add
+  `--run-as-root` merely to silence the failsafe.

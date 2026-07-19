@@ -8,6 +8,9 @@ supporting network, identity, log, and registry resource.
 
 ```mermaid
 flowchart LR
+    root["AWS root: first run only"] --> bootstrap["Guarded service-account bootstrap"]
+    bootstrap --> deployer["IAM deployment service account"]
+    deployer --> terraform
     user["Developer or tester"] -->|"HTTP port 80"| alb["Application Load Balancer"]
     alb -->|"Health-checked app port"| asg["Auto Scaling Group"]
     asg --> instance1["Disposable EC2 instance A"]
@@ -82,8 +85,24 @@ Store under a narrowly scoped instance policy.
 
 ### Identity and access
 
-Human/CI credentials run Terraform. EC2 never receives those credentials. Each
-instance assumes its own AWS IAM role with three purposes only:
+In the standalone first-run workflow, temporary AWS account-root browser
+credentials create a dedicated IAM deployment service account. A local ignored
+marker selects that service account's AWS CLI profile for future commands. Every
+normal AWS-facing helper checks STS and refuses root unless the operator adds a
+non-persistent `--run-as-root` exception. The helper does not change the
+macOS/Linux login; “root” refers only to AWS identity.
+
+The requested service account uses a long-term key, which AWS recommends
+replacing with temporary role or IAM Identity Center credentials where
+practical. It can manage the infrastructure action families but cannot create
+IAM users or access keys directly. Its role-policy and pass-role combination is
+privilege-escalation-capable. The generated policy is broad because a reusable
+kit cannot know future account IDs and resource names; organizations should add
+a permission boundary and narrow it with role, ARN, and tag conditions.
+
+The service-account or approved human/CI role runs Terraform. EC2 never receives
+those credentials. Each instance assumes its own AWS IAM role with three
+purposes only:
 
 1. register with Systems Manager so SSH can stay closed;
 2. pull the workspace's ECR image;

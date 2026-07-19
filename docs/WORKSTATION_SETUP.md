@@ -16,8 +16,10 @@ standard Unix file permissions.
 | Docker | current supported release | needed only to build/push an application |
 | ShellCheck | current | optional deeper shell analysis |
 
-Run `./scripts/workspace.sh validate` for local code checks and
-`./scripts/workspace.sh preflight` for versions plus AWS readiness.
+Run `./scripts/workspace.sh validate` for local code checks. Complete
+[FIRST_RUN.md](FIRST_RUN.md) before using `preflight` in a new standalone AWS
+account; after that handoff, `preflight` automatically selects the saved local
+service profile.
 
 ## AWS CLI installation or update
 
@@ -60,7 +62,18 @@ No Python package installation is needed: the scanner and tests use only the
 standard library. Application dependencies are installed inside the Docker build
 defined by the application's own Dockerfile.
 
-## Login: preferred short-lived choices
+## Login choices
+
+AWS recommends temporary credentials and roles when practical. This package's
+requested standalone first-run path is documented in [FIRST_RUN.md](FIRST_RUN.md):
+temporary AWS account-root browser credentials create one IAM service user, then
+the package refuses root for ordinary commands. Do not substitute `sudo`; the
+guard checks AWS STS identity, not the operating-system user.
+
+The generated service profile uses one long-term access key. Treat the machine
+and its AWS shared credentials file as privileged. In an organization, prefer
+the short-lived choices below and have an administrator replace the generated
+user with a deployment role.
 
 ### IAM Identity Center (recommended for an organization)
 
@@ -78,8 +91,8 @@ account ID and a non-root assumed-role ARN.
 Some accounts and current AWS CLI releases support:
 
 ```bash
-aws login
-aws sts get-caller-identity
+aws login --profile YOUR_PROFILE_NAME
+aws sts get-caller-identity --profile YOUR_PROFILE_NAME
 ```
 
 ### Access keys (fallback only)
@@ -100,10 +113,22 @@ Enter the values only at the hidden prompts. Never put them in:
 Rotate a key immediately if it appears in any of those places. Never create or
 use access keys for the AWS root user.
 
+## How this package selects a profile
+
+The first-run helper records the service account's **profile name only** in
+ignored `.workspace/service-account-profile`. It never writes a key inside this
+repository. Every AWS-facing helper uses this order:
+
+1. an explicit `--profile NAME`, when supplied;
+2. the saved local service-profile marker; then
+3. the standard AWS default credential chain when no marker exists.
+
+The selected identity is always checked with STS. An AWS root ARN fails unless
+that exact command includes `--run-as-root`. The override does not persist and
+does not bypass apply/destroy confirmation.
+
 ## What was detected when this kit was generated
 
-On 2026-07-18, this local machine had AWS CLI 2.33.26, Terraform 1.11.4,
-Python 3.9.6, and jq 1.7.1. It had a default region of `us-west-2` but no active
-AWS credentials. The official AWS CLI changelog listed 2.36.2 during final
-review, so the installed CLI must be updated before strict planning or apply.
-Software and login state can change, so the runtime preflight is authoritative.
+On 2026-07-19, the final local review used AWS CLI 2.36.2, Terraform 1.11.4,
+Python 3.14.6, and jq 1.7.1. Software and login state can change, so the runtime
+preflight—not this historical note—is authoritative.
