@@ -1,0 +1,29 @@
+# Copy this file to terraform.tfvars, then edit the copy. The real copy is
+# ignored by Git because each AWS account and application is different.
+
+project_name = "stub-app"
+environment  = "dev"
+aws_region   = "us-west-2"
+
+# Open internet access is convenient for a demo but is broader than most teams
+# need. Prefer a trusted office or VPN range, for example ["203.0.113.10/32"].
+allowed_ipv4_cidrs = ["0.0.0.0/0"]
+
+# The small defaults normally run one instance and allow CPU scaling to two.
+instance_type      = "t3.micro"
+minimum_instances = 1
+desired_instances = 1
+maximum_instances = 2
+
+# The default nginx image proves the infrastructure works. publish_app.sh writes
+# an immutable application image to application.auto.tfvars.json later.
+container_image     = "public.ecr.aws/docker/library/nginx:stable-alpine"
+container_port      = 80
+health_check_path   = "/"
+use_spot_instances  = false
+
+# These tags must never contain credentials, customer secrets, or personal data.
+additional_tags = {
+  Owner      = "replace-with-team-name"
+  CostCenter = "replace-with-cost-center"
+}
