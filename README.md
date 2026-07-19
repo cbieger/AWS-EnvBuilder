@@ -109,6 +109,7 @@ The supporting commands use these forms:
 ./scripts/cost_estimate.py [--instances INSTANCE_COUNT]
 ./scripts/rotate_logs.sh
 ./scripts/package.sh [--output DIRECTORY] [--version LABEL]
+./scripts/self_destruct.sh [--review-only | --execute --expected-account ACCOUNT_ID] [--profile PROFILE_NAME] [--region AWS_REGION] [--project PROJECT_NAME] [--environment ENVIRONMENT_NAME] [--delete-state-bucket] [--delete-service-account] [--service-account IAM_USER] [--service-profile LOCAL_PROFILE] [--run-as-root]
 ```
 
 Examples with actual values:
@@ -144,6 +145,13 @@ aws logout --profile aws-root-bootstrap
 
 # Create a portable, source-only release and SHA-256 checksum under dist/.
 ./scripts/package.sh --version 1.0.0
+
+# Inventory account assets and preview complete teardown without deleting.
+./scripts/self_destruct.sh \
+  --review-only \
+  --region us-west-2 \
+  --project customer-demo \
+  --environment dev
 ```
 
 All helpers return exit code `0` when they finish successfully and a nonzero
@@ -311,12 +319,21 @@ Terraform state bucket so past state versions remain recoverable. [The teardown
 section](docs/TROUBLESHOOTING.md#safe-teardown) explains how to verify the
 billable resources are gone.
 
+For retiring an entire attached project, use the separate self-destruct sequence.
+Its default review mode inventories account assets, prints a deletion-only saved
+plan, and changes nothing. After independent review, execute mode can remove the
+Terraform runtime and can optionally remove the exact versioned state backend
+and verified first-run IAM service account. It never turns the broad inventory
+into broad account deletion. Follow [the full self-destruct guide](docs/SELF_DESTRUCT.md)
+before using it.
+
 ## Logs and retention
 
 Every helper run records its complete terminal output beneath `logs/`:
 
 - successful local runs: 14 days, at most 20 files;
 - failed local runs: 90 days, at most 100 files;
+- account inventories and deletion manifests: 365 days, at most 20 JSON files;
 - routine CloudWatch logs: 14 days;
 - bootstrap error logs: 90 days;
 - ALB access logs in S3: 30 days.

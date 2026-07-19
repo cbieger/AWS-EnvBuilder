@@ -130,3 +130,16 @@ The separate state bucket remains. After destroy succeeds:
 If Terraform destroy partially fails, do not repeatedly delete random resources
 in the console. Fix the first permission/dependency error and rerun the same
 destroy so Terraform can preserve dependency order.
+
+## Full-project self-destruct
+
+Ordinary `workspace.sh destroy` keeps the protected state backend and first-run
+service identity. If the entire attached project must be retired, do not empty
+the bucket or remove the IAM user manually. Run the default review-only
+self-destruct sequence, inspect the complete inventory and saved deletion plan,
+obtain independent approval, and only then start a fresh execute run.
+
+The exact syntax, optional-scope proofs, confirmation phrase, partial-failure
+order, and final account checks are in [SELF_DESTRUCT.md](SELF_DESTRUCT.md).
+Unrelated or ambiguous account assets are inventory-only and never automatically
+deleted.

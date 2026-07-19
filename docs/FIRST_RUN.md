@@ -215,9 +215,16 @@ whether to replace anything.
 
 ## Key rotation and removal
 
-This package does not automatically rotate or delete a successful service
-account because doing so can strand Terraform state or another project using
-the same profile. The AWS account owner must establish a rotation schedule,
+Normal deployment and ordinary workspace destroy do not automatically rotate or
+delete a successful service account because doing so can strand Terraform state
+or another project using the same profile. The separate full-project
+self-destruct sequence can retire the exact bootstrap user only after no managed
+runtime object remains in state, exact ownership/credential-shape checks pass, a
+different cleanup identity proves delete permission, and the operator types an
+account-specific confirmation. Read [SELF_DESTRUCT.md](SELF_DESTRUCT.md) before
+considering it.
+
+For routine rotation, the AWS account owner must still establish a schedule,
 prove the replacement profile works, and only then deactivate/delete the old
 key. Never create a second key and forget the first.
 

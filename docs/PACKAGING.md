@@ -45,7 +45,8 @@ The packager uses a documented file-type allowlist:
 
 - root `README.md`, `LICENSE`, and `.gitignore`;
 - Markdown guides under `docs/`;
-- Bash/Python helpers under `scripts/`;
+- Bash/Python helpers under `scripts/`, including the read-only account
+  inventory and guarded self-destruct sequence;
 - Terraform source, templates, example variables, and provider lock checksums;
 - Python tests; and
 - empty log-directory marker files.
@@ -58,7 +59,8 @@ The archive never intentionally includes:
 - AWS credentials/config files, keys, tokens, or environment files;
 - Terraform downloaded providers, state, plans, `backend.hcl`, real
   `terraform.tfvars`, or generated application variables;
-- runtime success/error logs; or
+- runtime success/error logs;
+- account inventory/deletion-manifest JSON reports; or
 - a previously generated `dist/` archive.
 
 Symbolic links are rejected so a link cannot quietly pull a file from outside

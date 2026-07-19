@@ -95,67 +95,6 @@ created_access_key_id=""
 credential_profile_written=false
 bootstrap_complete=false
 
-# Remove only the profile sections created by this run while preserving every
-# other profile, comment, and line in the operator's shared AWS files. AWS CLI
-# has no `configure unset` command, so rollback performs this narrowly scoped
-# edit itself.
-remove_local_service_profile() {
-  local credentials_path="${AWS_SHARED_CREDENTIALS_FILE:-${HOME}/.aws/credentials}"
-  local config_path="${AWS_CONFIG_FILE:-${HOME}/.aws/config}"
-
-  python3 - "${SERVICE_PROFILE}" "${credentials_path}" "${config_path}" <<'PY'
-import os
-import re
-import sys
-import tempfile
-
-profile_name, credentials_path, config_path = sys.argv[1:]
-
-
-def remove_section(path, section_name):
-    """Remove one exact INI section without reformatting unrelated content."""
-    path = os.path.abspath(os.path.expanduser(path))
-    if not os.path.exists(path):
-        return
-
-    with open(path, "r", encoding="utf-8") as source:
-        lines = source.readlines()
-
-    header = f"[{section_name}]"
-    kept = []
-    removing = False
-    found = False
-    for line in lines:
-        stripped = line.strip()
-        if re.fullmatch(r"\[[^]]+\]", stripped):
-            removing = stripped == header
-            found = found or removing
-        if not removing:
-            kept.append(line)
-
-    if not found:
-        return
-
-    directory = os.path.dirname(path)
-    descriptor, temporary_path = tempfile.mkstemp(prefix=".aws-envbuilder-rollback-", dir=directory)
-    try:
-        with os.fdopen(descriptor, "w", encoding="utf-8") as output:
-            output.writelines(kept)
-        os.chmod(temporary_path, 0o600)
-        os.replace(temporary_path, path)
-    except BaseException:
-        try:
-            os.unlink(temporary_path)
-        except FileNotFoundError:
-            pass
-        raise
-
-
-remove_section(credentials_path, profile_name)
-remove_section(config_path, f"profile {profile_name}")
-PY
-}
-
 # If a failure happens after an AWS write, remove only the user/key/policy that
 # this exact run created. This prevents a half-configured privileged identity.
 finish_first_run() {
@@ -204,7 +143,7 @@ finish_first_run() {
       fi
     fi
     if [[ "${credential_profile_written}" == "true" ]]; then
-      remove_local_service_profile >/dev/null 2>&1 || \
+      remove_aws_cli_profile_sections "${SERVICE_PROFILE}" >/dev/null 2>&1 || \
         log_warning "Automatic local-profile cleanup failed; inspect the AWS shared credentials and config files."
     fi
   fi
