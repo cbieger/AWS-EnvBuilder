@@ -1,0 +1,28 @@
+# Terraform downloads providers into this machine-specific directory.
+**/.terraform/*
+
+# Terraform state can contain infrastructure details and must never be committed.
+*.tfstate
+*.tfstate.*
+
+# These files contain generated plans or local backend settings.
+*.tfplan
+terraform/backend.hcl
+terraform/application.auto.tfvars.json
+
+# The real variable file is operator-specific. Commit only the documented example.
+terraform/terraform.tfvars
+!terraform/terraform.tfvars.example
+
+# Runtime logs are local evidence, not source code. Keep only the directory markers.
+logs/**/*.log
+logs/active/*
+!logs/**/.gitkeep
+
+# Common editor, operating-system, Python, and test artifacts.
+.DS_Store
+.idea/
+.vscode/
+__pycache__/
+*.py[cod]
+.pytest_cache/

@@ -1,0 +1,137 @@
+#!/bin/bash
+# This file runs once whenever Auto Scaling launches a replacement instance.
+# Terraform inserts only validated, non-secret settings into the placeholders.
+set -Eeuo pipefail
+
+readonly AWS_REGION=${aws_region}
+readonly APPLICATION_LOG_GROUP=${application_group}
+readonly BOOTSTRAP_LOG_GROUP=${bootstrap_log_group}
+readonly ERROR_LOG_GROUP=${error_log_group}
+readonly CONTAINER_IMAGE=${container_image}
+readonly CONTAINER_PORT=${container_port}
+readonly HEALTH_CHECK_PATH=${health_check_path}
+readonly BOOTSTRAP_LOG="/var/log/workspace-bootstrap.log"
+readonly ERROR_LOG="/var/log/workspace-error.log"
+
+# Send all bootstrap output to a local file, the system logger, and the EC2
+# console. EC2 console output remains useful if CloudWatch setup itself fails.
+exec > >(tee -a "$${BOOTSTRAP_LOG}" | logger -t workspace-bootstrap -s 2>/dev/console) 2>&1
+
+record_failure() {
+  local exit_code="$1"
+  local line_number="$2"
+
+  printf '%s ERROR bootstrap failed at line %s with exit code %s\n' \
+    "$(date -u +'%Y-%m-%dT%H:%M:%SZ')" "$${line_number}" "$${exit_code}" \
+    >> "$${ERROR_LOG}"
+
+  # If the CloudWatch agent is already installed, make a best effort to upload
+  # the longer-retained error file before this disposable instance is replaced.
+  if command -v amazon-cloudwatch-agent-ctl >/dev/null 2>&1; then
+    amazon-cloudwatch-agent-ctl -a start -m ec2 || true
+  fi
+
+  exit "$${exit_code}"
+}
+trap 'record_failure "$?" "$LINENO"' ERR
+
+printf '%s INFO starting stateless workspace bootstrap\n' "$(date -u +'%Y-%m-%dT%H:%M:%SZ')"
+
+# Apply current security fixes, then install only the runtime and log agent.
+dnf upgrade -y
+dnf install -y docker amazon-cloudwatch-agent
+systemctl enable --now docker
+
+# Docker's own local cache is capped. Container output is also shipped directly
+# to the routine CloudWatch group by the awslogs driver.
+install -d -m 0755 /etc/docker
+cat >/etc/docker/daemon.json <<'DOCKER_CONFIG'
+{
+  "log-driver": "json-file",
+  "log-opts": {
+    "max-size": "10m",
+    "max-file": "3"
+  }
+}
+DOCKER_CONFIG
+systemctl restart docker
+
+# The CloudWatch agent keeps routine setup output for a short period and errors
+# for much longer. Log-group retention itself is enforced by Terraform.
+cat >/opt/aws/amazon-cloudwatch-agent/etc/workspace-config.json <<CW_CONFIG
+{
+  "agent": {
+    "region": "$${AWS_REGION}",
+    "run_as_user": "root"
+  },
+  "logs": {
+    "logs_collected": {
+      "files": {
+        "collect_list": [
+          {
+            "file_path": "$${BOOTSTRAP_LOG}",
+            "log_group_name": "$${BOOTSTRAP_LOG_GROUP}",
+            "log_stream_name": "{instance_id}",
+            "timezone": "UTC"
+          },
+          {
+            "file_path": "$${ERROR_LOG}",
+            "log_group_name": "$${ERROR_LOG_GROUP}",
+            "log_stream_name": "{instance_id}",
+            "timezone": "UTC"
+          }
+        ]
+      }
+    }
+  }
+}
+CW_CONFIG
+
+touch "$${ERROR_LOG}"
+chmod 0600 "$${BOOTSTRAP_LOG}" "$${ERROR_LOG}"
+amazon-cloudwatch-agent-ctl \
+  -a fetch-config \
+  -m ec2 \
+  -s \
+  -c file:/opt/aws/amazon-cloudwatch-agent/etc/workspace-config.json
+
+# Private ECR images need a short-lived login token. Public images skip this
+# branch. No registry password is written to disk or echoed into the log.
+if [[ "$${CONTAINER_IMAGE}" == *.dkr.ecr.*.amazonaws.com/* ]]; then
+  readonly REGISTRY_HOST="$${CONTAINER_IMAGE%%/*}"
+  aws ecr get-login-password --region "$${AWS_REGION}" \
+    | docker login --username AWS --password-stdin "$${REGISTRY_HOST}" >/dev/null
+fi
+
+docker pull "$${CONTAINER_IMAGE}"
+docker rm -f workspace-application >/dev/null 2>&1 || true
+docker run -d \
+  --name workspace-application \
+  --restart unless-stopped \
+  --log-driver awslogs \
+  --log-opt "awslogs-region=$${AWS_REGION}" \
+  --log-opt "awslogs-group=$${APPLICATION_LOG_GROUP}" \
+  -p "$${CONTAINER_PORT}:$${CONTAINER_PORT}" \
+  "$${CONTAINER_IMAGE}"
+
+# Wait up to five minutes for the local endpoint. A failure is preserved in the
+# error log and causes the launch to fail rather than silently serving nothing.
+healthy=false
+for attempt in $(seq 1 60); do
+  if curl --fail --silent --show-error \
+    "http://127.0.0.1:$${CONTAINER_PORT}$${HEALTH_CHECK_PATH}" >/dev/null; then
+    healthy=true
+    break
+  fi
+  printf '%s INFO waiting for application health, attempt %s of 60\n' \
+    "$(date -u +'%Y-%m-%dT%H:%M:%SZ')" "$${attempt}"
+  sleep 5
+done
+
+if [[ "$${healthy}" != "true" ]]; then
+  printf '%s ERROR application did not become healthy within five minutes\n' \
+    "$(date -u +'%Y-%m-%dT%H:%M:%SZ')" >> "$${ERROR_LOG}"
+  exit 1
+fi
+
+printf '%s INFO bootstrap completed successfully\n' "$(date -u +'%Y-%m-%dT%H:%M:%SZ')"
