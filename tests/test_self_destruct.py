@@ -32,7 +32,8 @@ if arguments == ["--version"]:
 
 services = {
     "sts", "resourcegroupstaggingapi", "ec2", "autoscaling", "elbv2",
-    "ecr", "logs", "s3api", "iam", "budgets",
+    "ecr", "logs", "s3api", "iam", "budgets", "lambda", "scheduler",
+    "codebuild", "dynamodb", "sns", "pinpoint-sms-voice-v2",
 }
 service_index = next((index for index, value in enumerate(arguments) if value in services), None)
 if service_index is None or service_index + 1 >= len(arguments):
@@ -151,9 +152,27 @@ elif command == "iam list-access-keys":
         "CreateDate": "2026-07-19T00:00:00Z",
     }]}))
 elif command == "iam list-user-policies":
-    print(json.dumps({"PolicyNames": ["AWS-EnvBuilder-ServiceAccount"]}))
+    print(json.dumps({"PolicyNames": []}))
 elif command == "iam list-attached-user-policies":
-    print(json.dumps({"AttachedPolicies": []}))
+    print(json.dumps({"AttachedPolicies": [{
+        "PolicyName": "AWS-EnvBuilder-aws-envbuilder-automation",
+        "PolicyArn": "arn:aws:iam::123456789012:policy/AWS-EnvBuilder-aws-envbuilder-automation",
+    }]}))
+elif command == "iam get-policy":
+    print(json.dumps({"Policy": {
+        "PolicyName": "AWS-EnvBuilder-aws-envbuilder-automation",
+        "Arn": "arn:aws:iam::123456789012:policy/AWS-EnvBuilder-aws-envbuilder-automation",
+        "AttachmentCount": 1,
+        "PermissionsBoundaryUsageCount": 0,
+    }}))
+elif command == "iam list-policy-tags":
+    print(json.dumps({"Tags": [
+        {"Key": "ManagedBy", "Value": "AWS-EnvBuilder"},
+        {"Key": "Purpose", "Value": "terraform-service-account-policy"},
+        {"Key": "ServiceAccount", "Value": "aws-envbuilder-automation"},
+    ]}))
+elif command == "iam list-policy-versions":
+    print(json.dumps({"Versions": [{"VersionId": "v1", "IsDefaultVersion": True}]}))
 elif command == "iam list-groups-for-user":
     print(json.dumps({"Groups": []}))
 elif command == "iam list-mfa-devices":
@@ -474,7 +493,8 @@ class SelfDestructTests(unittest.TestCase):
 
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertIn("iam delete-access-key", events)
-        self.assertIn("iam delete-user-policy", events)
+        self.assertIn("iam detach-user-policy", events)
+        self.assertIn("iam delete-policy", events)
         self.assertIn("iam delete-user --user-name aws-envbuilder-automation", events)
         self.assertLess(events.index("terraform apply"), events.index("iam delete-access-key"))
         self.assertNotIn("s3api delete-bucket", events)

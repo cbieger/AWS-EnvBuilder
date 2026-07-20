@@ -147,6 +147,15 @@ def build_report(arguments: argparse.Namespace) -> tuple[dict, list[dict[str, st
     budgets = collector.read(
         "budgets", "budgets", "describe-budgets", "--account-id", str(account_id)
     )
+    lambda_functions = collector.read("lambda_functions", "lambda", "list-functions")
+    schedules = collector.read("scheduler_schedules", "scheduler", "list-schedules")
+    codebuild_projects = collector.read("codebuild_projects", "codebuild", "list-projects")
+    dynamodb_tables = collector.read("dynamodb_tables", "dynamodb", "list-tables")
+    sns_topics = collector.read("sns_topics", "sns", "list-topics")
+    sns_subscriptions = collector.read("sns_subscriptions", "sns", "list-subscriptions")
+    sms_phone_numbers = collector.read(
+        "sms_phone_numbers", "pinpoint-sms-voice-v2", "describe-phone-numbers"
+    )
 
     sections: dict[str, list[dict]] = {}
     sections["tagged_resources"] = [
@@ -201,6 +210,15 @@ def build_report(arguments: argparse.Namespace) -> tuple[dict, list[dict[str, st
         ("iam_roles", roles.get("Roles", []), ("Arn", "RoleName", "Path", "CreateDate", "MaxSessionDuration"), "Tags"),
         ("iam_instance_profiles", instance_profiles.get("InstanceProfiles", []), ("Arn", "InstanceProfileName", "Path", "CreateDate", "Roles"), "Tags"),
         ("budgets", budgets.get("Budgets", []), ("BudgetName", "BudgetType", "BudgetLimit", "TimeUnit", "CalculatedSpend"), None),
+        ("lambda_functions", lambda_functions.get("Functions", []), ("FunctionName", "FunctionArn", "Runtime", "LastModified", "MemorySize", "Timeout"), None),
+        ("scheduler_schedules", schedules.get("Schedules", []), ("Arn", "Name", "GroupName", "State", "ScheduleExpression", "Target"), None),
+        ("sns_topics", sns_topics.get("Topics", []), ("TopicArn",), None),
+        # Endpoint is intentionally omitted because it may be an operator's
+        # personal email address or cell number.
+        ("sns_subscriptions", sns_subscriptions.get("Subscriptions", []), ("SubscriptionArn", "TopicArn", "Protocol"), None),
+        # The literal telephone number is omitted from the retained inventory;
+        # ARN/ID/status/capabilities are enough for an operator to find it.
+        ("sms_phone_numbers", sms_phone_numbers.get("PhoneNumbers", []), ("PhoneNumberArn", "PhoneNumberId", "Status", "IsoCountryCode", "MessageType", "NumberCapabilities", "NumberType", "TwoWayEnabled", "TwoWayChannelArn", "SelfManagedOptOutsEnabled"), None),
     )
     for name, records, keys, tags_key in simple_sections:
         sections[name] = [
@@ -208,6 +226,13 @@ def build_report(arguments: argparse.Namespace) -> tuple[dict, list[dict[str, st
             for record in records
             if isinstance(record, dict)
         ]
+
+    sections["codebuild_projects"] = [
+        {"Name": name} for name in codebuild_projects.get("projects", []) if isinstance(name, str)
+    ]
+    sections["dynamodb_tables"] = [
+        {"TableName": name} for name in dynamodb_tables.get("TableNames", []) if isinstance(name, str)
+    ]
 
     for records in sections.values():
         records.sort(key=lambda item: json.dumps(item, sort_keys=True, default=str))
@@ -230,7 +255,9 @@ def build_report(arguments: argparse.Namespace) -> tuple[dict, list[dict[str, st
                 "All tagged/previously tagged resources returned by the regional "
                 "Resource Groups Tagging API, plus native account/Region lists for "
                 "EC2 networking/compute, Auto Scaling, ELBv2, ECR, CloudWatch Logs, "
-                "S3, IAM, and AWS Budgets. This is not every possible AWS service."
+                "S3, IAM, AWS Budgets, Lambda, EventBridge Scheduler, CodeBuild, "
+                "DynamoDB, SNS, and AWS End User Messaging phone-number metadata. "
+                "This is not every possible AWS service."
             ),
             "limitation": (
                 "AWS has no universal list-all-assets API. GetResources omits resources "

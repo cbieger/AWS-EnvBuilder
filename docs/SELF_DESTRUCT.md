@@ -46,7 +46,9 @@ The AWS CLI cannot delete an IAM user until its credentials, policies, and
 memberships have been removed. AWS documents that cleanup as manual and
 irreversible. This sequence will remove only the exact bootstrap shape it knows;
 an unexpected console login, managed policy, group, MFA device, certificate,
-SSH key, service credential, or inline policy blocks automatic deletion. See
+SSH key, service credential, unexpected inline policy, or unexpected attached
+policy blocks automatic deletion. The tagged bootstrap managed policy must be
+attached only to that exact user. See
 [AWS's IAM user removal procedure](https://docs.aws.amazon.com/IAM/latest/UserGuide/id_users_remove.html).
 
 ## Before review mode

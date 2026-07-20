@@ -30,16 +30,17 @@ The commit must exclude:
   `bangr_handoff_2026-07-18*` artifact, unless their owner separately requests
   them in a different commit.
 
-## Proposed commit message for the self-destruct branch
+## Proposed commit message for the scheduled self-destruct branch
 
 ```text
-feat: add ownership-safe AWS self-destruct workflow
+feat: add cancellable scheduled environment teardown
 
-- inventory account assets across tagged and native service views before deletion
-- require account, ownership, deletion-only plan, and exact phrase proofs
-- optionally remove versioned state and the verified bootstrap identity
-- retain before/after inventories and deletion manifests for audit
-- test review, refusal, state, and IAM cleanup paths entirely offline
+- prompt for a duration or local deadline and convert it safely to UTC
+- require confirmed email and verified two-way SMS before arming
+- send five milestone notices and accept only exact SMS CANCEL
+- run deletion-only Terraform from an AWS CodeBuild control plane
+- keep the expanded exact bootstrap actions in one ownership-tagged managed policy
+- document costs, registrations, failure modes, and retained state
 ```
 
 ## Required review workflow

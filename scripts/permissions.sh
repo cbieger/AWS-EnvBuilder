@@ -12,6 +12,7 @@ REGION="us-west-2"
 STRICT=false
 RUN_AS_ROOT=false
 PRINT_SERVICE_POLICY=false
+PRINT_REQUIRED_ACTIONS=false
 
 usage() {
   cat <<'USAGE'
@@ -53,6 +54,11 @@ while [[ $# -gt 0 ]]; do
       PRINT_SERVICE_POLICY=true
       shift
       ;;
+    --print-required-actions)
+      # Internal scheduled-runner interface. It makes no AWS request.
+      PRINT_REQUIRED_ACTIONS=true
+      shift
+      ;;
     --help|-h)
       usage
       exit 0
@@ -88,6 +94,27 @@ readonly REQUIRED_ACTIONS=(
   "budgets:UpdateBudget"
   "budgets:UpdateNotification"
   "budgets:UpdateSubscriber"
+  "codebuild:BatchGetProjects"
+  "codebuild:CreateProject"
+  "codebuild:DeleteProject"
+  "codebuild:ListTagsForResource"
+  "codebuild:ListProjects"
+  "codebuild:StartBuild"
+  "codebuild:TagResource"
+  "codebuild:UntagResource"
+  "codebuild:UpdateProject"
+  "dynamodb:CreateTable"
+  "dynamodb:DeleteTable"
+  "dynamodb:Describe*"
+  "dynamodb:DescribeTable"
+  "dynamodb:GetItem"
+  "dynamodb:ListTagsOfResource"
+  "dynamodb:ListTables"
+  "dynamodb:PutItem"
+  "dynamodb:TagResource"
+  "dynamodb:UntagResource"
+  "dynamodb:UpdateItem"
+  "dynamodb:UpdateTable"
   "ec2:AssociateRouteTable"
   "ec2:AttachInternetGateway"
   "ec2:AuthorizeSecurityGroupEgress"
@@ -181,13 +208,28 @@ readonly REQUIRED_ACTIONS=(
   "iam:UntagInstanceProfile"
   "iam:UntagRole"
   "logs:CreateLogGroup"
+  "logs:CreateLogStream"
   "logs:DeleteLogGroup"
   "logs:DescribeLogGroups"
   "logs:FilterLogEvents"
   "logs:ListTagsForResource"
   "logs:PutRetentionPolicy"
+  "logs:PutLogEvents"
   "logs:TagResource"
   "logs:UntagResource"
+  "lambda:AddPermission"
+  "lambda:CreateFunction"
+  "lambda:DeleteFunction"
+  "lambda:GetFunction"
+  "lambda:GetFunctionCodeSigningConfig"
+  "lambda:GetPolicy"
+  "lambda:ListTags"
+  "lambda:ListFunctions"
+  "lambda:RemovePermission"
+  "lambda:TagResource"
+  "lambda:UntagResource"
+  "lambda:UpdateFunctionCode"
+  "lambda:UpdateFunctionConfiguration"
   "s3:CreateBucket"
   "s3:DeleteBucket"
   "s3:DeleteBucketLifecycle"
@@ -205,8 +247,44 @@ readonly REQUIRED_ACTIONS=(
   "s3:PutBucketVersioning"
   "s3:PutEncryptionConfiguration"
   "s3:PutObject"
+  "scheduler:CreateSchedule"
+  "scheduler:DeleteSchedule"
+  "scheduler:GetSchedule"
+  "scheduler:ListTagsForResource"
+  "scheduler:ListSchedules"
+  "scheduler:TagResource"
+  "scheduler:UntagResource"
+  "scheduler:UpdateSchedule"
+  "sms-voice:DescribePhoneNumbers"
+  "sms-voice:SendTextMessage"
+  "sns:CreateTopic"
+  "sns:DeleteTopic"
+  "sns:GetSubscriptionAttributes"
+  "sns:GetTopicAttributes"
+  "sns:ListSubscriptionsByTopic"
+  "sns:ListSubscriptions"
+  "sns:ListTagsForResource"
+  "sns:ListTopics"
+  "sns:Publish"
+  "sns:SetTopicAttributes"
+  "sns:Subscribe"
+  "sns:TagResource"
+  "sns:Unsubscribe"
+  "sns:UntagResource"
   "tag:GetResources"
 )
+
+if [[ "${PRINT_REQUIRED_ACTIONS}" == "true" ]]; then
+  require_command python3 "Python 3.9 or newer is required to render the action list."
+  python3 - "${REQUIRED_ACTIONS[@]}" <<'PY'
+import json
+import sys
+
+json.dump(sorted(set(sys.argv[1:])), sys.stdout, indent=2)
+sys.stdout.write("\n")
+PY
+  exit 0
+fi
 
 if [[ "${PRINT_SERVICE_POLICY}" == "true" ]]; then
   require_command python3 "Python 3.9 or newer is required to render the service-account policy."
@@ -275,6 +353,12 @@ read_check "CloudWatch Logs" logs describe-log-groups --limit 1
 read_check "ECR" ecr describe-repositories --max-results 1
 read_check "S3" s3api list-buckets
 read_check "AWS Budgets" budgets describe-budgets --account-id "${account_id}" --max-results 1
+read_check "Lambda" lambda list-functions --max-items 1
+read_check "EventBridge Scheduler" scheduler list-schedules --max-results 1
+read_check "CodeBuild" codebuild list-projects --sort-by NAME --sort-order ASCENDING
+read_check "DynamoDB" dynamodb list-tables --limit 1
+read_check "SNS" sns list-topics --max-items 1
+read_check "AWS End User Messaging SMS" pinpoint-sms-voice-v2 describe-phone-numbers --max-results 1
 read_check "IAM users" iam list-users --max-items 1
 read_check "IAM roles" iam list-roles --max-items 1
 read_check "IAM instance profiles" iam list-instance-profiles --max-items 1

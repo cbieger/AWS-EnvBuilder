@@ -91,6 +91,7 @@ fi
 bootstrap_secret_file=""
 bootstrap_policy_file=""
 created_user=false
+created_managed_policy_arn=""
 created_access_key_id=""
 credential_profile_written=false
 bootstrap_complete=false
@@ -134,9 +135,13 @@ finish_first_run() {
         log_warning "Rollback could not list access keys; inspect the failed IAM user immediately."
       fi
 
-      aws "${ROOT_AWS_OPTIONS[@]}" iam delete-user-policy \
-        --user-name "${SERVICE_ACCOUNT_NAME}" \
-        --policy-name "AWS-EnvBuilder-ServiceAccount" >/dev/null 2>&1 || true
+      if [[ -n "${created_managed_policy_arn}" ]]; then
+        aws "${ROOT_AWS_OPTIONS[@]}" iam detach-user-policy \
+          --user-name "${SERVICE_ACCOUNT_NAME}" \
+          --policy-arn "${created_managed_policy_arn}" >/dev/null 2>&1 || true
+        aws "${ROOT_AWS_OPTIONS[@]}" iam delete-policy \
+          --policy-arn "${created_managed_policy_arn}" >/dev/null 2>&1 || true
+      fi
       if ! aws "${ROOT_AWS_OPTIONS[@]}" iam delete-user \
         --user-name "${SERVICE_ACCOUNT_NAME}" >/dev/null 2>&1; then
         log_warning "Rollback could not delete IAM user '${SERVICE_ACCOUNT_NAME}'; audit and remove it before retrying."
@@ -210,14 +215,30 @@ elif ! grep -q 'NoSuchEntity' "${user_lookup_error}"; then
 fi
 rm -f -- "${user_lookup_error}"
 
+partition=$(printf '%s' "${caller_arn}" | cut -d: -f2)
+managed_policy_name="AWS-EnvBuilder-${SERVICE_ACCOUNT_NAME}"
+managed_policy_arn="arn:${partition}:iam::${account_id}:policy/${managed_policy_name}"
+policy_lookup_error=$(mktemp "${TMPDIR:-/tmp}/aws-envbuilder-policy-lookup.XXXXXX")
+if aws "${ROOT_AWS_OPTIONS[@]}" iam get-policy \
+  --policy-arn "${managed_policy_arn}" >/dev/null 2>"${policy_lookup_error}"; then
+  rm -f -- "${policy_lookup_error}"
+  die "IAM policy '${managed_policy_name}' already exists. This bootstrap will not modify or reuse it."
+elif ! grep -q 'NoSuchEntity' "${policy_lookup_error}"; then
+  lookup_message=$(tr '\n' ' ' <"${policy_lookup_error}")
+  rm -f -- "${policy_lookup_error}"
+  die "Unable to prove the managed policy name is unused: ${lookup_message}"
+fi
+rm -f -- "${policy_lookup_error}"
+
 log_info "Proposed AWS account: ${account_id}"
 log_info "Proposed IAM user: ${SERVICE_ACCOUNT_NAME}"
+log_info "Proposed customer-managed IAM policy: ${managed_policy_name}"
 log_info "Proposed local AWS CLI profile: ${SERVICE_PROFILE}"
 log_warning "This IAM user can manage the infrastructure action families documented in docs/PERMISSIONS.md."
 log_warning "Its long-term key must be protected and rotated. Prefer IAM Identity Center or a role when available."
 require_exact_confirmation \
   "CREATE AWS SERVICE ACCOUNT" \
-  "This creates a powerful IAM user, attaches an inline deployment policy, and stores one new access key locally."
+  "This creates a powerful IAM user, attaches one tagged deployment policy, and stores one new access key locally."
 
 aws "${ROOT_AWS_OPTIONS[@]}" iam create-user \
   --user-name "${SERVICE_ACCOUNT_NAME}" \
@@ -230,10 +251,38 @@ umask 077
 bootstrap_policy_file=$(mktemp "${TMPDIR:-/tmp}/aws-envbuilder-policy.XXXXXX")
 "${SCRIPT_DIR}/permissions.sh" --print-service-policy >"${bootstrap_policy_file}"
 
-aws "${ROOT_AWS_OPTIONS[@]}" iam put-user-policy \
+policy_size=$(python3 - "${bootstrap_policy_file}" <<'PY'
+import json
+import sys
+
+with open(sys.argv[1], encoding="utf-8") as source:
+    policy = json.load(source)
+print(len(json.dumps(policy, separators=(",", ":"))))
+PY
+)
+[[ "${policy_size}" -le 6144 ]] \
+  || die "Generated deployment policy is ${policy_size} characters; AWS managed-policy limit is 6144. No policy was created."
+
+managed_policy_result=$(mktemp "${TMPDIR:-/tmp}/aws-envbuilder-created-policy.XXXXXX")
+aws "${ROOT_AWS_OPTIONS[@]}" iam create-policy \
+  --policy-name "${managed_policy_name}" \
+  --description "Exact reviewed AWS-EnvBuilder deployment actions for ${SERVICE_ACCOUNT_NAME}." \
+  --policy-document "file://${bootstrap_policy_file}" \
+  --tags \
+    Key=ManagedBy,Value=AWS-EnvBuilder \
+    Key=Purpose,Value=terraform-service-account-policy \
+    Key=ServiceAccount,Value="${SERVICE_ACCOUNT_NAME}" \
+  --output json >"${managed_policy_result}"
+created_managed_policy_arn="${managed_policy_arn}"
+returned_policy_arn=$(jq -er '.Policy.Arn' "${managed_policy_result}") \
+  || die "AWS created a deployment policy but returned no ARN. Rollback will be attempted."
+rm -f -- "${managed_policy_result}"
+[[ "${returned_policy_arn}" == "${managed_policy_arn}" ]] \
+  || die "AWS returned an unexpected deployment policy ARN. Rollback will be attempted."
+
+aws "${ROOT_AWS_OPTIONS[@]}" iam attach-user-policy \
   --user-name "${SERVICE_ACCOUNT_NAME}" \
-  --policy-name "AWS-EnvBuilder-ServiceAccount" \
-  --policy-document "file://${bootstrap_policy_file}"
+  --policy-arn "${created_managed_policy_arn}"
 
 bootstrap_secret_file=$(mktemp "${TMPDIR:-/tmp}/aws-envbuilder-access-key.XXXXXX")
 aws "${ROOT_AWS_OPTIONS[@]}" iam create-access-key \

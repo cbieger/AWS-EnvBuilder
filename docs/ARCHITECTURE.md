@@ -25,6 +25,11 @@ flowchart LR
     terraform --> alb
     terraform --> asg
     terraform --> budgets
+    scheduler["Optional Scheduler: once/minute"] -.-> controller["Lambda notices and CANCEL controller"]
+    controller -.-> schedule_state["DynamoDB schedule state"]
+    controller -.-> notice["SNS email and two-way SMS"]
+    controller -.-> destroy_build["CodeBuild deletion-only Terraform"]
+    destroy_build -.-> state
 ```
 
 A solid arrow is always used by the default one-instance workspace. A dotted
@@ -146,6 +151,27 @@ and requires an account/project/environment-specific phrase. Optional state and
 IAM cleanup happen only after Terraform state contains no managed runtime
 objects; harmless read-only data records may remain. Broad inventory is never
 used as authorization to delete unrelated assets.
+
+### Optional scheduled retirement
+
+New environments can opt into an AWS-hosted deadline. The local configurator
+accepts a duration or a local wall time, validates the detected IANA timezone,
+converts the deadline to UTC, and packages reviewed source without contact data.
+EventBridge Scheduler calls Lambda once per minute. DynamoDB holds one mutable
+state machine; Terraform deliberately does not manage that item so a later plan
+cannot reset `CANCELLED`. SNS duplicates notices to email, while a pre-existing
+AWS End User Messaging two-way number routes authenticated SMS replies to Lambda.
+
+The schedule cannot arm until the operator confirms the SNS email subscription
+with more than 12 hours remaining. Once `ACTIVE`, Lambda sends the 12-hour,
+2-hour, 1-hour, 15-minute, and 5-minute milestones. Only exact `CANCEL` from the
+enrolled phone and AWS destination number can set `CANCELLED`. At the deadline,
+CodeBuild rechecks account and state, rejects any create/update plan action, and
+atomically claims `EXECUTING` before applying the saved destroy plan. The runtime
+and schedule control plane delete themselves; protected backend/identity remain.
+
+See [SCHEDULED_SELF_DESTRUCT.md](SCHEDULED_SELF_DESTRUCT.md) for the state table,
+race boundary, channel limitations, costs, and operator procedure.
 
 ## What "stateless" requires from the application
 

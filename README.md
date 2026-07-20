@@ -40,6 +40,14 @@ The default deployment creates:
 9. Encrypted root disks, required IMDSv2, security groups, and least-purpose
    instance permissions.
 
+During the first Terraform `plan`/`apply`, the operator is also asked whether to
+add an optional AWS-hosted scheduled self-destruct. It accepts a duration or a
+specific local time, converts local time to UTC, requires an operator cell/email,
+sends five advance notices, and accepts only an authenticated `CANCEL` SMS before
+execution. It requires a pre-existing account-owned U.S. toll-free AWS two-way
+SMS number and adds costs. Read
+the [literal scheduled self-destruct guide](docs/SCHEDULED_SELF_DESTRUCT.md) first.
+
 The instances are *stateless*: an instance can be terminated and replaced
 without losing application data. Therefore, the application must not store
 uploads, sessions, databases, or irreplaceable files on its local disk. Add a
@@ -80,6 +88,7 @@ The main command has this shape:
 | `apply` | Rebuilds the proposal, requests exact cost approval, and creates or updates the workspace. | Yes | **Yes** |
 | `status` | Displays the application URL and current Auto Scaling instances. | Yes | No |
 | `logs` | Follows the previous hour of application logs; press Control-C to stop. | Yes | No |
+| `schedule-status` | Reads the optional schedule's authoritative DynamoDB state. | Yes, read-only calls | No |
 | `destroy` | Produces a destroy proposal, requests exact approval, and removes runtime resources. | Yes | **Yes—destructive** |
 
 Common examples:
@@ -96,6 +105,7 @@ Common examples:
 ./scripts/workspace.sh apply --profile company-dev --region us-west-2
 ./scripts/workspace.sh status --profile company-dev --region us-west-2
 ./scripts/workspace.sh logs --profile company-dev --region us-west-2
+./scripts/workspace.sh schedule-status --profile company-dev --region us-west-2
 ./scripts/workspace.sh destroy --profile company-dev --region us-west-2
 ```
 
@@ -271,6 +281,15 @@ Read the entire Terraform summary. A plus sign means "create," a tilde means
 "change," and a minus sign means "delete." The saved proposal is
 `terraform/workspace.tfplan`; it is not committed to Git.
 
+On the first preview, the helper asks whether this new environment should have a
+scheduled self-destruct. Choose `n` unless the account already has an eligible,
+registered account-owned U.S. toll-free AWS End User Messaging two-way SMS number
+connected to an SNS reply topic. If you choose `y`, the deadline must be at least 13 hours away.
+The helper accepts a duration or `YYYY-MM-DD HH:MM` in the detected local
+timezone, shows the converted UTC time, collects the cell/email, and validates
+the channels without sending a message. This option is billable and is documented
+step by step in [SCHEDULED_SELF_DESTRUCT.md](docs/SCHEDULED_SELF_DESTRUCT.md).
+
 ### Step 8: create the resources only after approving cost
 
 ```bash
@@ -280,6 +299,13 @@ Read the entire Terraform summary. A plus sign means "create," a tilde means
 The helper creates a fresh plan, displays it again, prints a large red cost
 warning, and requires the exact phrase shown on screen. Terraform then applies
 only that saved plan. When complete, the command prints the application URL.
+
+If scheduling was enabled, apply uploads reviewed source archives only after
+cost approval and creates an SNS email subscription. Open AWS's confirmation
+email immediately. The schedule remains safely `PENDING` and cannot delete until
+that confirmation is detected with more than 12 hours remaining. After the
+`ARMED` text/email, only an exact `CANCEL` reply to the SMS stops the deadline;
+email replies do not cancel.
 
 ### Step 9: attach an application
 

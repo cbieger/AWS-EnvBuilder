@@ -126,3 +126,41 @@ Official references:
 Terraform cannot create a truly hard account spending cap. An AWS Budget is an
 alert, not an emergency stop. The account owner remains responsible for Billing
 Console review and prompt teardown.
+
+## Optional scheduled self-destruct costs
+
+<p><font color="red" size="6"><strong>THE SCHEDULED SELF-DESTRUCT IS NOT
+GUARANTEED FREE. IT REQUIRES AN ELIGIBLE DEDICATED AWS TWO-WAY SMS NUMBER, WHICH
+MAY HAVE REGISTRATION AND RECURRING FEES, AND IT SENDS BILLABLE MESSAGES.</strong></font></p>
+
+When enabled, the schedule also creates EventBridge Scheduler, Lambda, on-demand
+DynamoDB, SNS, CloudWatch Logs, S3 source objects, and one small CodeBuild
+teardown job. Approximate low-volume activity is:
+
+| Component | Normal schedule activity | Pricing reminder |
+| --- | --- | --- |
+| Dedicated two-way SMS number | One account-owned registered U.S. toll-free origination number | AWS's current example is US$2/month, before registration/campaign fees. Other number types are not accepted by this feature. |
+| Outbound SMS | ARMED + 5 required warnings; cancellation/retries add messages | AWS's current US toll-free outbound example is about US$0.013/message; destination/carrier/country vary. |
+| EventBridge Scheduler | One call/minute, about 43,800/month | Current free allowance is 14 million invocations/month. |
+| Lambda + DynamoDB | One tiny controller call/minute and a few state reads/writes | Often within eligible free allowances at this scale, never guaranteed. |
+| CodeBuild general1.small | One Terraform destroy, normally several minutes | Current allowance is 100 minutes/month, then US$0.005/minute. |
+| SNS, CloudWatch, S3 | Email/API delivery, retained logs, two source ZIPs | Usage-priced; normally small, but retention/retries increase it. |
+
+A US example with one already-approved toll-free number and six successful
+single-part outbound messages is roughly **US$2.08 for the first month before
+registration/campaign fees, CodeBuild overage, tax, retries, carrier charges, or
+other AWS usage**. This is not a universal estimate. Long text can be split into
+multiple SMS segments and charged per segment. Check the exact country, number
+type, destination, and account pricing immediately before applying.
+
+Official references:
+
+- [AWS End User Messaging pricing](https://aws.amazon.com/end-user-messaging/pricing/)
+- [EventBridge pricing](https://aws.amazon.com/eventbridge/pricing/)
+- [CodeBuild pricing](https://aws.amazon.com/codebuild/pricing/)
+- [Lambda pricing](https://aws.amazon.com/lambda/pricing/)
+- [DynamoDB pricing](https://aws.amazon.com/dynamodb/pricing/on-demand/)
+- [SNS pricing](https://aws.amazon.com/sns/pricing/)
+
+The full setup, fail-closed email requirement, five notice times, and cancellation
+syntax are in [SCHEDULED_SELF_DESTRUCT.md](SCHEDULED_SELF_DESTRUCT.md).

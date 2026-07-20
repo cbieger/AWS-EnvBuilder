@@ -160,6 +160,12 @@ elif "sts" in arguments and "get-caller-identity" in arguments:
 elif "iam" in arguments and "get-user" in arguments:
     print("An error occurred (NoSuchEntity) when calling GetUser", file=sys.stderr)
     raise SystemExit(254)
+elif "iam" in arguments and "get-policy" in arguments:
+    print("An error occurred (NoSuchEntity) when calling GetPolicy", file=sys.stderr)
+    raise SystemExit(254)
+elif "iam" in arguments and "create-policy" in arguments:
+    name = arguments[arguments.index("--policy-name") + 1]
+    print(json.dumps({"Policy": {"Arn": f"arn:aws:iam::123456789012:policy/{name}"}}))
 elif "iam" in arguments and "create-access-key" in arguments:
     print(json.dumps({"AccessKey": {"AccessKeyId": "AKIA" + "0" * 16, "SecretAccessKey": os.environ["MOCK_ACCESS_SECRET"]}}))
 elif "iam" in arguments and "simulate-principal-policy" in arguments:
@@ -223,6 +229,8 @@ else:
         self.assertNotIn(test_secret, result.stdout)
         self.assertNotIn(test_secret, result.stderr)
         self.assertIn("iam create-user", events)
+        self.assertIn("iam create-policy", events)
+        self.assertIn("iam attach-user-policy", events)
         self.assertIn("iam create-access-key", events)
         self.assertIn("iam simulate-principal-policy", events)
         self.assertIn(f"First-run setup completed for arn:aws:iam::123456789012:user/{service_name}", result.stdout)
@@ -250,6 +258,8 @@ class GeneratedPolicyTests(unittest.TestCase):
         self.assertNotIn("iam:CreateUser", actions)
         self.assertNotIn("iam:CreateAccessKey", actions)
         self.assertNotIn("iam:AttachUserPolicy", actions)
+        compact_size = len(json.dumps(policy, separators=(",", ":")))
+        self.assertLessEqual(compact_size, 6144)
 
 
 class PackageTests(unittest.TestCase):
@@ -283,6 +293,10 @@ class PackageTests(unittest.TestCase):
         self.assertIn(f"{prefix}scripts/account_inventory.py", members)
         self.assertIn(f"{prefix}scripts/self_destruct.sh", members)
         self.assertIn(f"{prefix}docs/SELF_DESTRUCT.md", members)
+        self.assertIn(f"{prefix}scripts/scheduled_destroy_controller.py", members)
+        self.assertIn(f"{prefix}scripts/configure_scheduled_destroy.py", members)
+        self.assertIn(f"{prefix}terraform/scheduled_destroy.tf", members)
+        self.assertIn(f"{prefix}docs/SCHEDULED_SELF_DESTRUCT.md", members)
         self.assertIn(f"{prefix}logs/inventory/.gitkeep", members)
         self.assertIn(f"{prefix}terraform/variables.tf", members)
         self.assertFalse(any(".workspace" in name for name in members))

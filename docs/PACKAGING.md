@@ -46,7 +46,8 @@ The packager uses a documented file-type allowlist:
 - root `README.md`, `LICENSE`, and `.gitignore`;
 - Markdown guides under `docs/`;
 - Bash/Python helpers under `scripts/`, including the read-only account
-  inventory and guarded self-destruct sequence;
+  inventory, guarded self-destruct sequence, scheduled controller, deadline
+  configurator, channel validator, artifact uploader, and CodeBuild safety gate;
 - Terraform source, templates, example variables, and provider lock checksums;
 - Python tests; and
 - empty log-directory marker files.
@@ -60,7 +61,9 @@ The archive never intentionally includes:
 - Terraform downloaded providers, state, plans, `backend.hcl`, real
   `terraform.tfvars`, or generated application variables;
 - runtime success/error logs;
-- account inventory/deletion-manifest JSON reports; or
+- account inventory/deletion-manifest JSON reports;
+- generated `scheduled_destroy.auto.tfvars.json`, cell/email values, or the
+  content-addressed scheduling ZIP files under `.workspace/`; or
 - a previously generated `dist/` archive.
 
 Symbolic links are rejected so a link cannot quietly pull a file from outside

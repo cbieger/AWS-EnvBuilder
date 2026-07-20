@@ -26,7 +26,7 @@ not Terraform, because a Terraform-managed access key would be present in state
 and an already-running Terraform provider cannot safely switch itself to a key
 it just created.
 
-The inline service-user policy is generated from the exact `REQUIRED_ACTIONS`
+The tagged customer-managed service-user policy is generated from the exact `REQUIRED_ACTIONS`
 array in `scripts/permissions.sh`. This keeps first-run access and later policy
 simulation aligned. It deliberately excludes IAM user/access-key management;
 the service account has no direct `iam:CreateUser` or `iam:CreateAccessKey`
@@ -37,6 +37,13 @@ operations required by this reusable deployer, including role-policy writes and
 generated names. Treat it as an infrastructure-administrator credential. An
 organization should replace it with a temporary role, permission boundary, and
 narrower ARN/tag conditions.
+
+The managed-policy form is used because the exact reviewed action list exceeds
+AWS's much smaller IAM-user inline-policy document quota; it remains below the
+customer-managed policy limit and avoids replacing exact actions with broader
+service wildcards. The policy is attached only to the bootstrap user and tagged
+with that user name so guarded full-project teardown can verify ownership and
+sole attachment before deleting it.
 
 The access key is written directly to the standard AWS shared credentials file
 with restrictive permissions and is never intentionally printed. AWS recommends
@@ -78,11 +85,31 @@ They cover:
 - S3 state and ALB log bucket lifecycle, encryption, versioning, policies,
   ownership, public-access blocking, objects, and tags;
 - AWS Budgets and email-subscriber lifecycle for actual and forecast cost alerts.
+- optional scheduled teardown lifecycle for Lambda, EventBridge Scheduler,
+  CodeBuild, DynamoDB, SNS, CloudWatch Logs, and content-addressed S3 source;
+- read/no-send validation of AWS End User Messaging phone numbers and two-way SMS;
+  and
+- the CodeBuild runner's temporary permission to read state and delete every
+  Terraform-managed runtime action family after its account/plan/state gates.
 
 Account inventory additionally requires `tag:GetResources`, `iam:ListUsers`,
 `iam:ListRoles`, and `iam:ListInstanceProfiles`. These read actions are included
 in the generated service-account policy because self-destruct review must fail,
 not silently omit sections, when its census cannot be completed.
+
+Scheduled teardown adds native inventory reads for Lambda functions, Scheduler
+schedules, CodeBuild projects, DynamoDB tables, SNS topics/subscriptions, and
+redacted AWS End User Messaging phone-number metadata. The
+Lambda controller role is narrower: it can read/update only its state table,
+inspect/publish only its email topic, send transactional SMS, write its logs, and
+start only its CodeBuild project. Scheduler can invoke only that Lambda. The
+CodeBuild role is necessarily broad across Terraform's destroy action families;
+it is created inside the workspace and deletes itself during successful teardown.
+
+Existing service accounts created from an older release do not automatically
+gain these new action families. Strict preflight will report the denied actions.
+Have the account owner review the updated `REQUIRED_ACTIONS` list and update or
+replace the deployment role/policy; do not return to daily AWS-root operation.
 
 ## Separate permission proof for service-account deletion
 
@@ -93,10 +120,12 @@ cleanup IAM user/role or the explicit AWS-root exception. A user name alone is
 not accepted as ownership proof. Before the confirmation prompt,
 `self_destruct.sh` reads the exact bootstrap user's tags,
 credentials, memberships, and policy shape and asks IAM's read-only simulator
-about these three additional actions for a non-root cleanup principal:
+about these additional actions for a non-root cleanup principal:
 
 - `iam:DeleteAccessKey`;
-- `iam:DeleteUserPolicy`; and
+- `iam:DetachUserPolicy`;
+- `iam:DeletePolicyVersion`;
+- `iam:DeletePolicy`; and
 - `iam:DeleteUser`.
 
 Those actions are **not** added to the service-account policy. Root cannot be
