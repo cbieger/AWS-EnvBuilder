@@ -43,7 +43,7 @@ and does not bypass cost/destruction confirmation.
 ## First run stopped partway through
 
 Read the retained transcript under `logs/errors/`. The helper attempts to remove
-only the new access key, inline policy, IAM user, and local profile sections made
+only the new access key, tagged managed policy, IAM user, and local profile sections made
 by that failed run. If cleanup reports an error, have the account owner compare
 IAM and the local AWS profile immediately; do not rerun until the half-created
 identity is reconciled. The secret key is never intentionally logged, so it
@@ -130,6 +130,35 @@ The separate state bucket remains. After destroy succeeds:
 If Terraform destroy partially fails, do not repeatedly delete random resources
 in the console. Fix the first permission/dependency error and rerun the same
 destroy so Terraform can preserve dependency order.
+
+## Scheduled self-destruct does not arm
+
+Run the read-only command:
+
+```bash
+./scripts/workspace.sh schedule-status --region us-west-2
+```
+
+If the state is `PENDING`, find AWS SNS's subscription-confirmation email and
+click its confirmation link. The confirmation must be detected while more than
+12 hours remain. If it was late, the feature intentionally fails closed and does
+not delete. Create a freshly reviewed schedule in a future deployment or use the
+manual destroy procedure; never edit DynamoDB state to force activation.
+
+If channel validation blocks before plan, confirm that the supplied AWS End User
+Messaging number is account-owned, `ACTIVE`, U.S. `TOLL_FREE`, includes SMS
+capability, has **Two-way SMS** enabled, uses carrier-managed opt-outs, and sends
+inbound messages to the exact SNS topic ARN in the selected account and Region.
+Other number types are blocked because AWS can treat `CANCEL` as an opt-out keyword
+before Lambda sees it. Check registration, SMS sandbox/destination verification,
+and IAM errors. Validation uses `--dry-run`; do not replace it with a billable test.
+
+If `CANCEL` receives no acknowledgement, run `schedule-status`. `CANCELLED` is
+authoritative even if an acknowledgement channel failed. Any other state means
+the response may have come from the wrong phone/to the wrong AWS number, included
+extra characters, or arrived after `EXECUTING`. Email replies are never a valid
+cancellation channel. Read [SCHEDULED_SELF_DESTRUCT.md](SCHEDULED_SELF_DESTRUCT.md)
+before attempting recovery.
 
 ## Full-project self-destruct
 

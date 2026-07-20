@@ -34,3 +34,18 @@ output "monthly_cost_budget_names" {
   description = "Account-wide AWS Budgets that email on actual or forecast gross monthly spend beyond the configured thresholds."
   value       = sort([for budget in aws_budgets_budget.monthly_cost_alert : budget.name])
 }
+
+output "scheduled_destroy_status" {
+  description = "Operator-safe schedule summary. Contact details are intentionally omitted."
+  value = var.scheduled_destroy_enabled ? {
+    state              = "PENDING_EMAIL_CONFIRMATION_OR_ACTIVE"
+    local_deadline     = var.scheduled_destroy_configuration.local_deadline
+    utc_deadline       = var.scheduled_destroy_configuration.deadline_utc
+    cancellation_reply = "Reply exactly CANCEL to a warning SMS before execution begins."
+  } : null
+}
+
+output "scheduled_destroy_table_name" {
+  description = "DynamoDB schedule-state table used by the read-only status command."
+  value       = var.scheduled_destroy_enabled ? aws_dynamodb_table.scheduled_destroy[0].name : null
+}

@@ -9,6 +9,7 @@
 *.tfplan
 terraform/backend.hcl
 terraform/application.auto.tfvars.json
+terraform/scheduled_destroy.auto.tfvars.json
 
 # The real variable file is operator-specific. Commit only the documented example.
 terraform/terraform.tfvars

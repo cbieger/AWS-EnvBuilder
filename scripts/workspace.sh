@@ -30,12 +30,14 @@ Commands:
   status     Display Terraform outputs and current Auto Scaling instances.
   logs       Follow recent application logs from CloudWatch.
   destroy    Create a destroy plan, demand exact approval, then remove runtime.
+  schedule-status  Read the current scheduled self-destruct state from AWS.
   help       Show this explanation.
 
 Examples:
   ./scripts/workspace.sh validate
   ./scripts/workspace.sh preflight --profile company-dev --region us-west-2
   ./scripts/workspace.sh plan --profile company-dev --region us-west-2
+  ./scripts/workspace.sh schedule-status --profile company-dev --region us-west-2
 
 There is deliberately no blanket --yes option. A billable apply or destructive
 destroy always needs the exact phrase displayed on screen (or the matching
@@ -78,7 +80,7 @@ begin_logged_run "workspace-${COMMAND}"
 # a profile marker needs attention. Every command that can contact AWS resolves
 # and checks its selected identity through preflight below.
 case "${COMMAND}" in
-  preflight|init|plan|apply|status|logs|destroy)
+  preflight|init|plan|apply|status|logs|destroy|schedule-status)
     PROFILE="$(resolve_aws_profile "${PROFILE}")"
     ;;
 esac
@@ -134,6 +136,22 @@ create_plan() {
   log_info "Saved proposal: ${TERRAFORM_DIR}/${plan_path}"
 }
 
+ensure_scheduled_destroy_configuration() {
+  require_command python3 "Install Python 3.9 or newer using docs/WORKSTATION_SETUP.md."
+  python3 "${SCRIPT_DIR}/configure_scheduled_destroy.py" \
+    --terraform-dir "${TERRAFORM_DIR}" \
+    --repository-root "${WORKSPACE_ROOT}" \
+    --region "${REGION}" \
+    --ensure
+
+  if [[ "$(jq -r '.scheduled_destroy_enabled // false' "${TERRAFORM_DIR}/scheduled_destroy.auto.tfvars.json")" == "true" ]]; then
+    print_scheduled_destroy_cost_warning
+    channel_arguments=(--region "${REGION}")
+    [[ -n "${PROFILE}" ]] && channel_arguments+=(--profile "${PROFILE}")
+    "${SCRIPT_DIR}/validate_scheduled_destroy_channels.sh" "${channel_arguments[@]}"
+  fi
+}
+
 case "${COMMAND}" in
   help)
     usage
@@ -164,6 +182,7 @@ case "${COMMAND}" in
   plan)
     run_strict_preflight
     initialize_terraform
+    ensure_scheduled_destroy_configuration
     print_cost_warning
     "${SCRIPT_DIR}/cost_estimate.py"
     create_plan "workspace.tfplan"
@@ -173,6 +192,7 @@ case "${COMMAND}" in
   apply)
     run_strict_preflight
     initialize_terraform
+    ensure_scheduled_destroy_configuration
     create_plan "workspace.tfplan"
     terraform -chdir="${TERRAFORM_DIR}" show -no-color "workspace.tfplan"
     print_cost_warning
@@ -180,10 +200,38 @@ case "${COMMAND}" in
     require_exact_confirmation \
       "I ACCEPT ESTIMATED AWS CHARGES" \
       "This applies the displayed saved plan and may begin AWS billing immediately."
+    upload_arguments=(--region "${REGION}")
+    [[ -n "${PROFILE}" ]] && upload_arguments+=(--profile "${PROFILE}")
+    "${SCRIPT_DIR}/upload_scheduled_destroy_artifacts.sh" "${upload_arguments[@]}"
     terraform -chdir="${TERRAFORM_DIR}" apply -input=false "workspace.tfplan"
     log_info "Workspace apply completed. Application URL follows."
     terraform -chdir="${TERRAFORM_DIR}" output -raw application_url
     printf '\n'
+    if [[ "$(jq -r '.scheduled_destroy_enabled // false' "${TERRAFORM_DIR}/scheduled_destroy.auto.tfvars.json")" == "true" ]]; then
+      print_scheduled_destroy_cost_warning
+      log_warning "SCHEDULE IS NOT ARMED YET: open the AWS SNS confirmation email and click Confirm subscription."
+      log_warning "After confirmation, AWS will text/email ARMED. Only an exact CANCEL SMS reply stops teardown."
+      terraform -chdir="${TERRAFORM_DIR}" output scheduled_destroy_status
+    fi
+    ;;
+
+  schedule-status)
+    run_strict_preflight
+    initialize_terraform
+    config_file="${TERRAFORM_DIR}/scheduled_destroy.auto.tfvars.json"
+    [[ -f "${config_file}" ]] || die "No local scheduled self-destruct configuration exists."
+    [[ "$(jq -r '.scheduled_destroy_enabled // false' "${config_file}")" == "true" ]] \
+      || die "Scheduled self-destruct is disabled for this environment."
+    schedule_id=$(jq -r '.scheduled_destroy_configuration.schedule_id' "${config_file}")
+    schedule_table=$(terraform -chdir="${TERRAFORM_DIR}" output -raw scheduled_destroy_table_name)
+    aws "${AWS_OPTIONS[@]}" dynamodb get-item \
+      --table-name "${schedule_table}" \
+      --key "{\"ScheduleId\":{\"S\":\"${schedule_id}\"}}" \
+      --consistent-read \
+      --projection-expression '#status,DeadlineEpoch' \
+      --expression-attribute-names '{"#status":"Status"}' \
+      --output table
+    log_info "Only an exact CANCEL reply from the enrolled phone can change an armed schedule to CANCELLED."
     ;;
 
   status)

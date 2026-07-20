@@ -450,9 +450,34 @@ verify_service_account_ownership() {
     die "Unable to prove the service account has no console login profile."
   fi
 
-  jq -e '.PolicyNames == ["AWS-EnvBuilder-ServiceAccount"]' \
-    "${identity_dir}/inline-policies.json" >/dev/null || unexpected_count=$((unexpected_count + 1))
-  [[ "$(jq '.AttachedPolicies | length' "${identity_dir}/attached-policies.json")" == "0" ]] || unexpected_count=$((unexpected_count + 1))
+  [[ "$(jq '.PolicyNames | length' "${identity_dir}/inline-policies.json")" == "0" ]] || unexpected_count=$((unexpected_count + 1))
+  expected_policy_name="AWS-EnvBuilder-${SERVICE_ACCOUNT_NAME}"
+  expected_policy_arn="arn:${user_arn#arn:}"
+  expected_policy_arn="${expected_policy_arn%%:iam::*}:iam::${account_id}:policy/${expected_policy_name}"
+  jq -e --arg name "${expected_policy_name}" --arg arn "${expected_policy_arn}" '
+    .AttachedPolicies == [{PolicyName: $name, PolicyArn: $arn}]
+  ' "${identity_dir}/attached-policies.json" >/dev/null || unexpected_count=$((unexpected_count + 1))
+
+  if [[ "${unexpected_count}" -eq 0 ]]; then
+    aws "${AWS_OPTIONS[@]}" iam get-policy --policy-arn "${expected_policy_arn}" \
+      --output json >"${identity_dir}/managed-policy.json"
+    aws "${AWS_OPTIONS[@]}" iam list-policy-tags --policy-arn "${expected_policy_arn}" \
+      --output json >"${identity_dir}/managed-policy-tags.json"
+    aws "${AWS_OPTIONS[@]}" iam list-policy-versions --policy-arn "${expected_policy_arn}" \
+      --output json >"${identity_dir}/managed-policy-versions.json"
+    jq -e --arg arn "${expected_policy_arn}" --arg name "${expected_policy_name}" '
+      .Policy.Arn == $arn
+      and .Policy.PolicyName == $name
+      and .Policy.AttachmentCount == 1
+      and (.Policy.PermissionsBoundaryUsageCount // 0) == 0
+    ' "${identity_dir}/managed-policy.json" >/dev/null || unexpected_count=$((unexpected_count + 1))
+    jq -e --arg user "${SERVICE_ACCOUNT_NAME}" '
+      (.Tags | map({key: .Key, value: .Value}) | from_entries) as $tags
+      | $tags.ManagedBy == "AWS-EnvBuilder"
+        and $tags.Purpose == "terraform-service-account-policy"
+        and $tags.ServiceAccount == $user
+    ' "${identity_dir}/managed-policy-tags.json" >/dev/null || unexpected_count=$((unexpected_count + 1))
+  fi
   [[ "$(jq '.Groups | length' "${identity_dir}/groups.json")" == "0" ]] || unexpected_count=$((unexpected_count + 1))
   [[ "$(jq '.MFADevices | length' "${identity_dir}/mfa.json")" == "0" ]] || unexpected_count=$((unexpected_count + 1))
   [[ "$(jq '.Certificates | length' "${identity_dir}/certificates.json")" == "0" ]] || unexpected_count=$((unexpected_count + 1))
@@ -486,8 +511,10 @@ verify_service_account_delete_permissions() {
   local denied_actions
   local -a cleanup_actions=(
     "iam:DeleteAccessKey"
-    "iam:DeleteUserPolicy"
+    "iam:DeletePolicy"
+    "iam:DeletePolicyVersion"
     "iam:DeleteUser"
+    "iam:DetachUserPolicy"
   )
 
   # IAM does not simulate the account-root identity. The explicit root override
@@ -744,6 +771,8 @@ delete_bootstrap_service_account() {
   local identity_dir="${temporary_directory}/service-account"
   local access_key_id
   local policy_name
+  local policy_arn
+  local policy_version
 
   while IFS= read -r access_key_id; do
     [[ -n "${access_key_id}" ]] || continue
@@ -758,6 +787,19 @@ delete_bootstrap_service_account() {
       --user-name "${SERVICE_ACCOUNT_NAME}" \
       --policy-name "${policy_name}"
   done < <(jq -r '.PolicyNames[]?' "${identity_dir}/inline-policies.json")
+
+  policy_arn=$(jq -er '.AttachedPolicies[0].PolicyArn' "${identity_dir}/attached-policies.json")
+  aws "${AWS_OPTIONS[@]}" iam detach-user-policy \
+    --user-name "${SERVICE_ACCOUNT_NAME}" \
+    --policy-arn "${policy_arn}"
+  while IFS= read -r policy_version; do
+    [[ -n "${policy_version}" ]] || continue
+    aws "${AWS_OPTIONS[@]}" iam delete-policy-version \
+      --policy-arn "${policy_arn}" \
+      --version-id "${policy_version}"
+  done < <(jq -r '.Versions[]? | select(.IsDefaultVersion != true) | .VersionId' \
+    "${identity_dir}/managed-policy-versions.json")
+  aws "${AWS_OPTIONS[@]}" iam delete-policy --policy-arn "${policy_arn}"
 
   aws "${AWS_OPTIONS[@]}" iam delete-user --user-name "${SERVICE_ACCOUNT_NAME}"
   log_warning "Permanently deleted IAM service account ${SERVICE_ACCOUNT_NAME}."

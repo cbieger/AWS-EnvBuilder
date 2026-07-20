@@ -26,8 +26,8 @@ After showing the account, proposed IAM user, and proposed local profile, the
 helper requires the exact phrase `CREATE AWS SERVICE ACCOUNT`. It then:
 
 1. creates one IAM user tagged as managed by AWS-EnvBuilder;
-2. generates an inline policy from the same action list the preflight audits;
-3. attaches that inline policy to the new user;
+2. generates one customer-managed policy from the same action list the preflight audits;
+3. tags that policy and attaches it only to the new user;
 4. creates one programmatic access key;
 5. writes the key directly to the standard AWS shared credentials file with
    owner-only permissions, without printing it or passing it on a command line;
@@ -37,8 +37,8 @@ helper requires the exact phrase `CREATE AWS SERVICE ACCOUNT`. It then:
 8. records only the profile name in ignored
    `.workspace/service-account-profile` so later helpers select it automatically.
 
-If a step fails, the helper attempts to delete only the access key, inline
-policy, IAM user, and local profile sections created by that run. The retained
+If a step fails, the helper attempts to delete only the access key, tagged
+managed policy, IAM user, and local profile sections created by that run. The retained
 error transcript reports cleanup failures, but never intentionally includes the
 secret access key.
 
@@ -209,7 +209,7 @@ aws sts get-caller-identity --profile THE_PRINTED_PROFILE
 ```
 
 If that identity is correct, continue normal operation. If it is wrong, stop
-and have the AWS account owner audit the IAM user, its key age, inline policy,
+and have the AWS account owner audit the IAM user, its key age, attached policy,
 CloudTrail history, and the local credentials/config files before deciding
 whether to replace anything.
 

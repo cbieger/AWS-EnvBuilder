@@ -267,6 +267,19 @@ print_cost_warning() {
   printf '\033[0m\n'
 }
 
+print_scheduled_destroy_cost_warning() {
+  # Two-way SMS numbers and messages vary sharply by country. The warning is
+  # intentionally explicit instead of pretending this control plane is free.
+  printf '\n\033[1;31m'
+  printf '%s\n' '!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!'
+  printf '%s\n' '!!  SCHEDULED SELF-DESTRUCT ADDS AWS SERVICES AND WILL INCUR COSTS.     !!'
+  printf '%s\n' '!!  A DEDICATED TWO-WAY SMS NUMBER MAY HAVE REGISTRATION/MONTHLY FEES. !!'
+  printf '%s\n' '!!  SMS MESSAGES AND THE TERRAFORM CODEBUILD RUN ARE ALSO BILLABLE.    !!'
+  printf '%s\n' '!!  REVIEW docs/SCHEDULED_SELF_DESTRUCT.md AND docs/COSTS.md FIRST.    !!'
+  printf '%s\n' '!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!'
+  printf '\033[0m\n'
+}
+
 require_exact_confirmation() {
   local expected_phrase="$1"
   local explanation="$2"
